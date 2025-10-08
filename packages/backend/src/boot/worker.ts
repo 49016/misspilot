@@ -11,39 +11,58 @@ import { loadConfig } from '@/config.js';
 import { jobQueue, server } from './common.js';
 
 /**
- * Init worker process
+ * Initialize and run worker process
+ * Workers handle either server or job queue processing based on configuration
  */
 export async function workerMain() {
 	const config = loadConfig();
 
+	// Initialize Sentry error tracking for backend if configured
 	if (config.sentryForBackend) {
-		Sentry.init({
-			integrations: [
-				...(config.sentryForBackend.enableNodeProfiling ? [nodeProfilingIntegration()] : []),
-			],
+		try {
+			Sentry.init({
+				integrations: [
+					...(config.sentryForBackend.enableNodeProfiling ? [nodeProfilingIntegration()] : []),
+				],
 
-			// Performance Monitoring
-			tracesSampleRate: 1.0, //  Capture 100% of the transactions
+				// Performance Monitoring - Capture 100% of transactions
+				tracesSampleRate: 1.0,
 
-			// Set sampling rate for profiling - this is relative to tracesSampleRate
-			profilesSampleRate: 1.0,
+				// Profiling - relative to tracesSampleRate
+				profilesSampleRate: 1.0,
 
-			maxBreadcrumbs: 0,
+				// Disable breadcrumbs to reduce overhead
+				maxBreadcrumbs: 0,
 
-			...config.sentryForBackend.options,
-		});
+				...config.sentryForBackend.options,
+			});
+			console.log('Sentry initialized for backend monitoring');
+		} catch (error) {
+			console.error('Failed to initialize Sentry:', error);
+		}
 	}
 
-	if (envOption.onlyServer) {
-		await server();
-	} else if (envOption.onlyQueue) {
-		await jobQueue();
-	} else {
-		await jobQueue();
+	// Start appropriate service based on environment options
+	try {
+		if (envOption.onlyServer) {
+			console.log('Starting server only mode...');
+			await server();
+		} else if (envOption.onlyQueue) {
+			console.log('Starting queue processor only mode...');
+			await jobQueue();
+		} else {
+			// Default: run job queue
+			console.log('Starting default job queue mode...');
+			await jobQueue();
+		}
+	} catch (error) {
+		console.error('Worker initialization failed:', error);
+		throw error;
 	}
 
-	if (cluster.isWorker) {
-		// Send a 'ready' message to parent process
-		process.send!('ready');
+	// Notify parent process that worker is ready
+	if (cluster.isWorker && process.send) {
+		process.send('ready');
+		console.log(`Worker ${cluster.worker?.id} is ready`);
 	}
 }

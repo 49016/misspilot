@@ -22,7 +22,8 @@ type RedisOptionsSource = Partial<RedisOptions> & {
 };
 
 /**
- * 設定ファイルの型
+ * Configuration file type definition
+ * Represents the structure of the YAML configuration file
  */
 type Source = {
 	url?: string;
