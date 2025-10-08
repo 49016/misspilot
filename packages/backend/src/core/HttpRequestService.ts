@@ -27,6 +27,10 @@ export type HttpRequestSendOptions = {
 	validators?: ((res: Response) => void)[];
 };
 
+/**
+ * Custom HTTP agent that blocks connections to private IP addresses
+ * unless explicitly allowed in configuration
+ */
 class HttpRequestServiceAgent extends http.Agent {
 	constructor(
 		private config: Config,
@@ -43,12 +47,13 @@ class HttpRequestServiceAgent extends http.Agent {
 			throw new Error('Failed to create socket');
 		}
 
+		// Block private IPs in production to prevent SSRF attacks
 		socket.on('connect', () => {
 			if (socket instanceof net.Socket && process.env.NODE_ENV === 'production') {
 				const address = socket.remoteAddress;
 				if (address && ipaddr.isValid(address)) {
 					if (this.isPrivateIp(address)) {
-						socket.destroy(new Error(`Blocked address: ${address}`));
+						socket.destroy(new Error(`Blocked private IP address: ${address}`));
 					}
 				}
 			}
@@ -57,21 +62,39 @@ class HttpRequestServiceAgent extends http.Agent {
 		return socket;
 	}
 
+	/**
+	 * Check if an IP address is private/internal
+	 * Returns false if the IP is in the allowed private networks list
+	 * @param ip IP address to check
+	 * @returns true if IP is private and not allowed, false otherwise
+	 */
 	@bindThis
 	private isPrivateIp(ip: string): boolean {
 		const parsedIp = ipaddr.parse(ip);
 
-		for (const net of this.config.allowedPrivateNetworks ?? []) {
-			const cidr = ipaddr.parseCIDR(net);
-			if (cidr[0].kind() === parsedIp.kind() && parsedIp.match(ipaddr.parseCIDR(net))) {
-				return false;
+		// Check if IP is in allowed private networks
+		const allowedNetworks = this.config.allowedPrivateNetworks ?? [];
+		for (const network of allowedNetworks) {
+			try {
+				const cidr = ipaddr.parseCIDR(network);
+				// Check if IP type matches network type (IPv4 vs IPv6) and if IP is in range
+				if (cidr[0].kind() === parsedIp.kind() && parsedIp.match(cidr)) {
+					return false; // IP is explicitly allowed
+				}
+			} catch (error) {
+				console.error(`Invalid CIDR notation in allowed networks: ${network}`, error);
 			}
 		}
 
+		// Block if not unicast (i.e., private, loopback, multicast, etc.)
 		return parsedIp.range() !== 'unicast';
 	}
 }
 
+/**
+ * Custom HTTPS agent that blocks connections to private IP addresses
+ * unless explicitly allowed in configuration
+ */
 class HttpsRequestServiceAgent extends https.Agent {
 	constructor(
 		private config: Config,
@@ -88,12 +111,13 @@ class HttpsRequestServiceAgent extends https.Agent {
 			throw new Error('Failed to create socket');
 		}
 
+		// Block private IPs in production to prevent SSRF attacks
 		socket.on('connect', () => {
 			if (socket instanceof net.Socket && process.env.NODE_ENV === 'production') {
 				const address = socket.remoteAddress;
 				if (address && ipaddr.isValid(address)) {
 					if (this.isPrivateIp(address)) {
-						socket.destroy(new Error(`Blocked address: ${address}`));
+						socket.destroy(new Error(`Blocked private IP address: ${address}`));
 					}
 				}
 			}
@@ -102,17 +126,31 @@ class HttpsRequestServiceAgent extends https.Agent {
 		return socket;
 	}
 
+	/**
+	 * Check if an IP address is private/internal
+	 * Returns false if the IP is in the allowed private networks list
+	 * @param ip IP address to check
+	 * @returns true if IP is private and not allowed, false otherwise
+	 */
 	@bindThis
 	private isPrivateIp(ip: string): boolean {
 		const parsedIp = ipaddr.parse(ip);
 
-		for (const net of this.config.allowedPrivateNetworks ?? []) {
-			const cidr = ipaddr.parseCIDR(net);
-			if (cidr[0].kind() === parsedIp.kind() && parsedIp.match(ipaddr.parseCIDR(net))) {
-				return false;
+		// Check if IP is in allowed private networks
+		const allowedNetworks = this.config.allowedPrivateNetworks ?? [];
+		for (const network of allowedNetworks) {
+			try {
+				const cidr = ipaddr.parseCIDR(network);
+				// Check if IP type matches network type (IPv4 vs IPv6) and if IP is in range
+				if (cidr[0].kind() === parsedIp.kind() && parsedIp.match(cidr)) {
+					return false; // IP is explicitly allowed
+				}
+			} catch (error) {
+				console.error(`Invalid CIDR notation in allowed networks: ${network}`, error);
 			}
 		}
 
+		// Block if not unicast (i.e., private, loopback, multicast, etc.)
 		return parsedIp.range() !== 'unicast';
 	}
 }
