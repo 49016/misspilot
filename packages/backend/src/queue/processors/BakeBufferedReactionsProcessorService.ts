@@ -12,6 +12,15 @@ import type * as Bull from 'bullmq';
 import { MiMeta } from '@/models/_.js';
 import { DI } from '@/di-symbols.js';
 
+/**
+ * Queue processor service for baking (persisting) buffered reactions to the database.
+ * 
+ * When reactions buffering is enabled, reactions are temporarily held in memory/Redis
+ * for performance. This service periodically commits those buffered reactions to the
+ * database to ensure durability.
+ * 
+ * This helps reduce database write pressure during high traffic by batching reactions.
+ */
 @Injectable()
 export class BakeBufferedReactionsProcessorService {
 	private logger: Logger;
@@ -26,17 +35,34 @@ export class BakeBufferedReactionsProcessorService {
 		this.logger = this.queueLoggerService.logger.createSubLogger('bake-buffered-reactions');
 	}
 
+	/**
+	 * Process the baking of buffered reactions.
+	 * Skips if reactions buffering is disabled in the instance settings.
+	 */
 	@bindThis
 	public async process(): Promise<void> {
-		if (!this.meta.enableReactionsBuffering) {
+		if (!this.isReactionsBufferingEnabled()) {
 			this.logger.info('Reactions buffering is disabled. Skipping...');
 			return;
 		}
 
-		this.logger.info('Baking buffered reactions...');
+		try {
+			this.logger.info('Baking buffered reactions...');
+			
+			await this.reactionsBufferingService.bake();
+			
+			this.logger.succ('All buffered reactions baked successfully.');
+		} catch (error) {
+			this.logger.error('Failed to bake buffered reactions:', error);
+			throw error;
+		}
+	}
 
-		await this.reactionsBufferingService.bake();
-
-		this.logger.succ('All buffered reactions baked.');
+	/**
+	 * Check if reactions buffering is enabled in instance meta settings
+	 */
+	@bindThis
+	private isReactionsBufferingEnabled(): boolean {
+		return this.meta.enableReactionsBuffering === true;
 	}
 }

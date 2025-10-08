@@ -21,9 +21,22 @@ import { bindThis } from '@/decorators.js';
 import { QueueLoggerService } from '../QueueLoggerService.js';
 import type * as Bull from 'bullmq';
 
+/**
+ * Queue processor service for cleaning old chart data.
+ * 
+ * This service periodically cleans up old time-series chart data to prevent
+ * unbounded growth of the database. Each chart type has its own retention
+ * policy defined in the chart class.
+ * 
+ * Charts are cleaned sequentially (not in parallel) to avoid overwhelming
+ * the database with simultaneous delete operations.
+ */
 @Injectable()
 export class CleanChartsProcessorService {
 	private logger: Logger;
+
+	/** All chart types that need periodic cleaning */
+	private readonly charts: Array<{ name: string; chart: { clean: () => Promise<void> } }>;
 
 	constructor(
 		private federationChart: FederationChart,
@@ -42,26 +55,50 @@ export class CleanChartsProcessorService {
 		private queueLoggerService: QueueLoggerService,
 	) {
 		this.logger = this.queueLoggerService.logger.createSubLogger('clean-charts');
+		
+		// Initialize chart list for easy iteration
+		this.charts = [
+			{ name: 'federation', chart: this.federationChart },
+			{ name: 'notes', chart: this.notesChart },
+			{ name: 'users', chart: this.usersChart },
+			{ name: 'activeUsers', chart: this.activeUsersChart },
+			{ name: 'instance', chart: this.instanceChart },
+			{ name: 'perUserNotes', chart: this.perUserNotesChart },
+			{ name: 'perUserPv', chart: this.perUserPvChart },
+			{ name: 'drive', chart: this.driveChart },
+			{ name: 'perUserReactions', chart: this.perUserReactionsChart },
+			{ name: 'perUserFollowing', chart: this.perUserFollowingChart },
+			{ name: 'perUserDrive', chart: this.perUserDriveChart },
+			{ name: 'apRequest', chart: this.apRequestChart },
+		];
 	}
 
+	/**
+	 * Clean all charts sequentially.
+	 * Sequential execution prevents overwhelming the database with parallel DELETE operations.
+	 */
 	@bindThis
 	public async process(): Promise<void> {
-		this.logger.info('Clean charts...');
+		this.logger.info(`Starting chart cleanup for ${this.charts.length} chart types...`);
 
-		// DBへの同時接続を避けるためにPromise.allを使わずひとつずつ実行する
-		await this.federationChart.clean();
-		await this.notesChart.clean();
-		await this.usersChart.clean();
-		await this.activeUsersChart.clean();
-		await this.instanceChart.clean();
-		await this.perUserNotesChart.clean();
-		await this.perUserPvChart.clean();
-		await this.driveChart.clean();
-		await this.perUserReactionsChart.clean();
-		await this.perUserFollowingChart.clean();
-		await this.perUserDriveChart.clean();
-		await this.apRequestChart.clean();
+		try {
+			let cleanedCount = 0;
+			
+			for (const { name, chart } of this.charts) {
+				try {
+					await chart.clean();
+					cleanedCount++;
+					this.logger.info(`Cleaned ${name} chart (${cleanedCount}/${this.charts.length})`);
+				} catch (error) {
+					this.logger.error(`Failed to clean ${name} chart:`, error);
+					// Continue with other charts even if one fails
+				}
+			}
 
-		this.logger.succ('All charts successfully cleaned.');
+			this.logger.succ(`Chart cleanup completed. Successfully cleaned ${cleanedCount}/${this.charts.length} chart types.`);
+		} catch (error) {
+			this.logger.error('Unexpected error during chart cleanup:', error);
+			throw error;
+		}
 	}
 }
