@@ -4,20 +4,27 @@
  */
 
 import { execa } from 'execa';
-import { writeFileSync, existsSync } from "node:fs";
+import { writeFileSync, existsSync } from 'node:fs';
 
-async function main() {
+const OUTPUT_PATH = './built/api.json';
+const BUILT_DIR = './built';
+
+async function buildIfNeeded() {
 	if (!process.argv.includes('--no-build')) {
 		await execa('pnpm', ['run', 'build'], {
 			stdout: process.stdout,
 			stderr: process.stderr,
 		});
 	}
+}
 
-	if (!existsSync('./built')) {
+function validateBuiltDirectory() {
+	if (!existsSync(BUILT_DIR)) {
 		throw new Error('`built` directory does not exist.');
 	}
+}
 
+async function generateApiSpec() {
 	/** @type {import('../src/config.js')} */
 	const { loadConfig } = await import('../built/config.js');
 
@@ -27,7 +34,13 @@ async function main() {
 	const config = loadConfig();
 	const spec = genOpenapiSpec(config, true);
 
-	writeFileSync('./built/api.json', JSON.stringify(spec), 'utf-8');
+	writeFileSync(OUTPUT_PATH, JSON.stringify(spec), 'utf-8');
+}
+
+async function main() {
+	await buildIfNeeded();
+	validateBuiltDirectory();
+	await generateApiSpec();
 }
 
 main().catch(e => {

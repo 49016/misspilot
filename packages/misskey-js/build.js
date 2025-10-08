@@ -12,23 +12,24 @@ const _package = JSON.parse(fs.readFileSync(_dirname + '/package.json', 'utf-8')
 
 const entryPoints = globSync('./src/**/**.{ts,tsx}');
 
+const OUT_DIR = './built';
+
 /** @type {import('esbuild').BuildOptions} */
 const options = {
 	entryPoints,
 	minify: process.env.NODE_ENV === 'production',
-	outdir: './built',
+	outdir: OUT_DIR,
 	target: 'es2022',
 	platform: 'browser',
 	format: 'esm',
 	sourcemap: 'linked',
 };
 
-// built配下をすべて削除する
 const args = process.argv.slice(2).map(arg => arg.toLowerCase());
 
 // built配下をすべて削除する
 if (!args.includes('--no-clean')) {
-	fs.rmSync('./built', { recursive: true, force: true });
+	fs.rmSync(OUT_DIR, { recursive: true, force: true });
 }
 
 if (args.includes('--watch')) {
@@ -59,19 +60,15 @@ async function buildSrc() {
 }
 
 function buildDts() {
-	return execa(
-		'tsc',
-		[
-			'--project', 'tsconfig.json',
-			'--outDir', 'built',
-			'--declaration', 'true',
-			'--emitDeclarationOnly', 'true',
-		],
-		{
-			stdout: process.stdout,
-			stderr: process.stderr,
-		},
-	);
+	return execa('tsc', [
+		'--project', 'tsconfig.json',
+		'--outDir', OUT_DIR,
+		'--declaration', 'true',
+		'--emitDeclarationOnly', 'true',
+	], {
+		stdout: process.stdout,
+		stderr: process.stderr,
+	});
 }
 
 async function watchSrc() {
