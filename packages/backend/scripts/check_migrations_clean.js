@@ -7,20 +7,29 @@
 
 import dataSource from '../ormconfig.js';
 
+function logQueries(queries) {
+	for (const query of queries) {
+		console.error(`- ${query.query}`);
+	}
+}
+
+function checkMigrations(sqlInMemory) {
+	const hasPendingMigrations = sqlInMemory.upQueries.length > 0 || sqlInMemory.downQueries.length > 0;
+	
+	if (hasPendingMigrations) {
+		console.error('There are several pending migrations. Please make sure you have generated the migrations correctly, or configured entities class correctly.');
+		logQueries(sqlInMemory.upQueries);
+		logQueries(sqlInMemory.downQueries);
+		return false;
+	}
+	
+	console.log('All migrations are clean.');
+	return true;
+}
+
 await dataSource.initialize();
 
 const sqlInMemory = await dataSource.driver.createSchemaBuilder().log();
+const isClean = checkMigrations(sqlInMemory);
 
-if (sqlInMemory.upQueries.length > 0 || sqlInMemory.downQueries.length > 0) {
-	console.error('There are several pending migrations. Please make sure you have generated the migrations correctly, or configured entities class correctly.');
-	for (const query of sqlInMemory.upQueries) {
-		console.error(`- ${query.query}`);
-	}
-	for (const query of sqlInMemory.downQueries) {
-		console.error(`- ${query.query}`);
-	}
-	process.exit(1);
-} else {
-	console.log('All migrations are clean.');
-	process.exit(0);
-}
+process.exit(isClean ? 0 : 1);

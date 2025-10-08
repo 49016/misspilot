@@ -5,13 +5,13 @@
 
 import { path as configYamlPath } from '../../built/config.js';
 import * as yaml from 'js-yaml';
-import fs from "node:fs";
+import fs from 'node:fs';
 
 export function isConcurrentIndexMigrationEnabled() {
 	return process.env.MISSKEY_MIGRATION_CREATE_INDEX_CONCURRENTLY === '1';
 }
 
-let loadedConfigCache = undefined;
+let cachedConfig;
 
 function loadConfigInternal() {
 	const config = yaml.load(fs.readFileSync(configYamlPath, 'utf-8'));
@@ -20,12 +20,12 @@ function loadConfigInternal() {
 		disallowExternalApRedirect: Boolean(config.disallowExternalApRedirect ?? false),
 		proxyRemoteFiles: Boolean(config.proxyRemoteFiles ?? false),
 		signToActivityPubGet: Boolean(config.signToActivityPubGet ?? true),
-	}
+	};
 }
 
 export function loadConfig() {
-	if (loadedConfigCache === undefined) {
-		loadedConfigCache = loadConfigInternal();
+	if (cachedConfig === undefined) {
+		cachedConfig = loadConfigInternal();
 	}
-	return loadedConfigCache;
+	return cachedConfig;
 }

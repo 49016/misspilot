@@ -5,39 +5,44 @@
 
 const { execSync } = require('child_process');
 const fs = require('fs');
+const path = require('path');
+
+const rootDir = path.join(__dirname, '..');
+
+function removePath(relativePath) {
+	const fullPath = path.join(rootDir, relativePath);
+	fs.rmSync(fullPath, { recursive: true, force: true });
+}
+
+function cleanPackage(packageName, includeBuild = true, includeNodeModules = true) {
+	if (includeBuild) {
+		removePath(`packages/${packageName}/built`);
+	}
+	if (includeNodeModules) {
+		removePath(`packages/${packageName}/node_modules`);
+	}
+}
 
 (async () => {
-	fs.rmSync(__dirname + '/../packages/backend/built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../packages/backend/node_modules', { recursive: true, force: true });
+	const packages = [
+		'backend',
+		'frontend-shared',
+		'frontend',
+		'frontend-embed',
+		'sw',
+		'misskey-js',
+		'misskey-reversi',
+		'misskey-bubble-game',
+	];
 
-	fs.rmSync(__dirname + '/../packages/frontend-shared/built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../packages/frontend-shared/node_modules', { recursive: true, force: true });
+	packages.forEach(pkg => cleanPackage(pkg));
+	cleanPackage('frontend-builder', false, true);
 
-	fs.rmSync(__dirname + '/../packages/frontend-builder/node_modules', { recursive: true, force: true });
-
-	fs.rmSync(__dirname + '/../packages/frontend/built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../packages/frontend/node_modules', { recursive: true, force: true });
-
-	fs.rmSync(__dirname + '/../packages/frontend-embed/built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../packages/frontend-embed/node_modules', { recursive: true, force: true });
-
-	fs.rmSync(__dirname + '/../packages/sw/built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../packages/sw/node_modules', { recursive: true, force: true });
-
-	fs.rmSync(__dirname + '/../packages/misskey-js/built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../packages/misskey-js/node_modules', { recursive: true, force: true });
-
-	fs.rmSync(__dirname + '/../packages/misskey-reversi/built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../packages/misskey-reversi/node_modules', { recursive: true, force: true });
-
-	fs.rmSync(__dirname + '/../packages/misskey-bubble-game/built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../packages/misskey-bubble-game/node_modules', { recursive: true, force: true });
-
-	fs.rmSync(__dirname + '/../built', { recursive: true, force: true });
-	fs.rmSync(__dirname + '/../node_modules', { recursive: true, force: true });
+	removePath('built');
+	removePath('node_modules');
 
 	execSync('pnpm store prune', {
-		cwd: __dirname + '/../',
+		cwd: rootDir,
 		stdio: 'inherit',
 	});
 })();

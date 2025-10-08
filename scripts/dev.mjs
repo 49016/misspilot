@@ -9,93 +9,39 @@ import { execa } from 'execa';
 
 const _filename = fileURLToPath(import.meta.url);
 const _dirname = dirname(_filename);
+const rootDir = _dirname + '/../';
 
-await execa('pnpm', ['clean'], {
-	cwd: _dirname + '/../',
+const execOptions = {
+	cwd: rootDir,
 	stdout: process.stdout,
 	stderr: process.stderr,
-});
+};
+
+function runCommand(args) {
+	return execa('pnpm', args, execOptions);
+}
+
+await runCommand(['clean']);
 
 await Promise.all([
-	execa('pnpm', ['build-pre'], {
-		cwd: _dirname + '/../',
-		stdout: process.stdout,
-		stderr: process.stderr,
-	}),
-	execa('pnpm', ['build-assets'], {
-		cwd: _dirname + '/../',
-		stdout: process.stdout,
-		stderr: process.stderr,
-	}),
-	execa('pnpm', ['--filter', 'backend...', 'build'], {
-		cwd: _dirname + '/../',
-		stdout: process.stdout,
-		stderr: process.stderr,
-	}),
+	runCommand(['build-pre']),
+	runCommand(['build-assets']),
+	runCommand(['--filter', 'backend...', 'build']),
 	// icons-subsetterは開発段階では使用されないが、型エラーを抑制するためにはじめの一度だけビルドする
-	execa('pnpm', ['--filter', 'icons-subsetter', 'build'], {
-		cwd: _dirname + '/../',
-		stdout: process.stdout,
-		stderr: process.stderr,
-	}),
+	runCommand(['--filter', 'icons-subsetter', 'build']),
 ]);
 
-execa('pnpm', ['build-pre', '--watch'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
+const watchCommands = [
+	['build-pre', '--watch'],
+	['build-assets', '--watch'],
+	['--filter', 'backend', 'dev'],
+	['--filter', 'frontend-shared', 'watch', '--no-clean'],
+	['--filter', 'frontend', 'watch'],
+	['--filter', 'frontend-embed', 'watch'],
+	['--filter', 'sw', 'watch'],
+	['--filter', 'misskey-js', 'watch', '--no-clean'],
+	['--filter', 'misskey-reversi', 'watch', '--no-clean'],
+	['--filter', 'misskey-bubble-game', 'watch', '--no-clean'],
+];
 
-execa('pnpm', ['build-assets', '--watch'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
-
-execa('pnpm', ['--filter', 'backend', 'dev'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
-
-execa('pnpm', ['--filter', 'frontend-shared', 'watch', '--no-clean'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
-
-execa('pnpm', ['--filter', 'frontend', 'watch'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
-
-execa('pnpm', ['--filter', 'frontend-embed', 'watch'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
-
-execa('pnpm', ['--filter', 'sw', 'watch'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
-
-execa('pnpm', ['--filter', 'misskey-js', 'watch', '--no-clean'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
-
-execa('pnpm', ['--filter', 'misskey-reversi', 'watch', '--no-clean'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
-
-execa('pnpm', ['--filter', 'misskey-bubble-game', 'watch', '--no-clean'], {
-	cwd: _dirname + '/../',
-	stdout: process.stdout,
-	stderr: process.stderr,
-});
+watchCommands.forEach(args => runCommand(args));
