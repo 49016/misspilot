@@ -14,6 +14,23 @@ import { IdService } from '@/core/IdService.js';
 import { QueueLoggerService } from '../QueueLoggerService.js';
 import type * as Bull from 'bullmq';
 
+/**
+ * Queue processor service for cleaning old remote notes from the database.
+ * 
+ * This is a sophisticated service that deletes old remote notes (notes from other instances)
+ * while preserving notes that have local interactions (clips, favorites, reactions, etc.).
+ * 
+ * Features:
+ * - Uses recursive CTEs to walk note trees and identify deletable notes
+ * - Adaptive batch sizing based on query performance
+ * - Time-based limits to prevent long-running operations
+ * - Progress tracking and detailed logging
+ * - Handles race conditions and transient errors
+ * - Preserves notes with local user engagement
+ * 
+ * The algorithm is complex but necessary to safely delete remote notes while
+ * maintaining referential integrity and user data.
+ */
 @Injectable()
 export class CleanRemoteNotesProcessorService {
 	private logger: Logger;

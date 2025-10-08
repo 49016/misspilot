@@ -19,9 +19,29 @@ import { QueueLoggerService } from '../QueueLoggerService.js';
 import type * as Bull from 'bullmq';
 import type { DbUserDeleteJobData } from '../types.js';
 
+/**
+ * Queue processor service for deleting user accounts and all associated data.
+ * 
+ * This service handles the complete deletion process:
+ * 1. Delete all user notes (with search index cleanup)
+ * 2. Delete all user drive files
+ * 3. Delete all user pages
+ * 4. Send deletion confirmation email
+ * 5. Optionally perform physical deletion of user record (or soft delete)
+ * 
+ * Uses cursor-based pagination for each data type to handle large datasets
+ * without memory issues. Each step is logged for audit trail.
+ */
 @Injectable()
 export class DeleteAccountProcessorService {
 	private logger: Logger;
+
+	/** Batch size for note deletion */
+	private readonly NOTE_BATCH_SIZE = 100;
+	/** Batch size for file deletion (smaller due to file system operations) */
+	private readonly FILE_BATCH_SIZE = 10;
+	/** Batch size for page deletion */
+	private readonly PAGE_BATCH_SIZE = 100;
 
 	constructor(
 		@Inject(DI.usersRepository)
@@ -48,113 +68,168 @@ export class DeleteAccountProcessorService {
 		this.logger = this.queueLoggerService.logger.createSubLogger('delete-account');
 	}
 
+	/**
+	 * Process account deletion job.
+	 * @returns Success message or void if user not found
+	 */
 	@bindThis
 	public async process(job: Bull.Job<DbUserDeleteJobData>): Promise<string | void> {
-		this.logger.info(`Deleting account of ${job.data.user.id} ...`);
+		const userId = job.data.user.id;
+		this.logger.info(`Starting account deletion for user ${userId}...`);
 
-		const user = await this.usersRepository.findOneBy({ id: job.data.user.id });
-		if (user == null) {
+		const user = await this.usersRepository.findOneBy({ id: userId });
+		if (!user) {
+			this.logger.warn(`User ${userId} not found, skipping deletion.`);
 			return;
 		}
 
-		{ // Delete notes
-			let cursor: MiNote['id'] | null = null;
+		try {
+			// Delete all user data in sequence
+			await this.deleteUserNotes(user.id);
+			await this.deleteUserFiles(user.id);
+			await this.deleteUserPages(user);
+			await this.sendDeletionNotificationEmail(user.id);
 
-			while (true) {
-				const notes = await this.notesRepository.find({
-					where: {
-						userId: user.id,
-						...(cursor ? { id: MoreThan(cursor) } : {}),
-					},
-					take: 100,
-					order: {
-						id: 1,
-					},
-				}) as MiNote[];
-
-				if (notes.length === 0) {
-					break;
-				}
-
-				cursor = notes.at(-1)?.id ?? null;
-
-				await this.notesRepository.delete(notes.map(note => note.id));
-
-				for (const note of notes) {
-					await this.searchService.unindexNote(note);
-				}
+			// Perform physical or soft delete based on job data
+			if (job.data.soft) {
+				this.logger.info(`Soft delete: User record preserved for ${userId}`);
+			} else {
+				await this.usersRepository.delete(userId);
+				this.logger.info(`Physical delete: User record deleted for ${userId}`);
 			}
 
-			this.logger.succ('All of notes deleted');
+			this.logger.succ(`Account deletion completed for user ${userId}`);
+			return 'Account deleted';
+		} catch (error) {
+			this.logger.error(`Failed to delete account for user ${userId}:`, error);
+			throw error;
 		}
+	}
 
-		{ // Delete files
-			let cursor: MiDriveFile['id'] | null = null;
+	/**
+	 * Delete all notes created by the user and remove them from search index.
+	 */
+	@bindThis
+	private async deleteUserNotes(userId: string): Promise<void> {
+		this.logger.info(`Deleting notes for user ${userId}...`);
+		
+		let cursor: MiNote['id'] | null = null;
+		let totalDeleted = 0;
 
-			while (true) {
-				const files = await this.driveFilesRepository.find({
-					where: {
-						userId: user.id,
-						...(cursor ? { id: MoreThan(cursor) } : {}),
-					},
-					take: 10,
-					order: {
-						id: 1,
-					},
-				}) as MiDriveFile[];
+		while (true) {
+			const notes = await this.notesRepository.find({
+				where: {
+					userId,
+					...(cursor ? { id: MoreThan(cursor) } : {}),
+				},
+				take: this.NOTE_BATCH_SIZE,
+				order: { id: 1 },
+			}) as MiNote[];
 
-				if (files.length === 0) {
-					break;
-				}
+			if (notes.length === 0) break;
 
-				cursor = files.at(-1)?.id ?? null;
+			cursor = notes.at(-1)?.id ?? null;
 
-				for (const file of files) {
-					await this.driveService.deleteFileSync(file);
-				}
+			// Delete from database
+			await this.notesRepository.delete(notes.map(note => note.id));
+
+			// Remove from search index
+			for (const note of notes) {
+				await this.searchService.unindexNote(note);
 			}
 
-			this.logger.succ('All of files deleted');
+			totalDeleted += notes.length;
 		}
 
-		{
-			// delete pages. Necessary for decrementing pageCount of notes.
-			while (true) {
-				const pages = await this.pagesRepository.find({
-					where: {
-						userId: user.id,
-					},
-					take: 100,
-					order: {
-						id: 1,
-					},
-				});
+		this.logger.succ(`Deleted ${totalDeleted} note(s) for user ${userId}`);
+	}
 
-				if (pages.length === 0) {
-					break;
-				}
-				for (const page of pages) {
-					await this.pageService.delete(user, page.id);
-				}
+	/**
+	 * Delete all drive files uploaded by the user.
+	 */
+	@bindThis
+	private async deleteUserFiles(userId: string): Promise<void> {
+		this.logger.info(`Deleting files for user ${userId}...`);
+		
+		let cursor: MiDriveFile['id'] | null = null;
+		let totalDeleted = 0;
+
+		while (true) {
+			const files = await this.driveFilesRepository.find({
+				where: {
+					userId,
+					...(cursor ? { id: MoreThan(cursor) } : {}),
+				},
+				take: this.FILE_BATCH_SIZE,
+				order: { id: 1 },
+			}) as MiDriveFile[];
+
+			if (files.length === 0) break;
+
+			cursor = files.at(-1)?.id ?? null;
+
+			// Delete files sequentially (file system operations)
+			for (const file of files) {
+				await this.driveService.deleteFileSync(file);
 			}
+
+			totalDeleted += files.length;
 		}
 
-		{ // Send email notification
-			const profile = await this.userProfilesRepository.findOneByOrFail({ userId: user.id });
+		this.logger.succ(`Deleted ${totalDeleted} file(s) for user ${userId}`);
+	}
+
+	/**
+	 * Delete all pages created by the user.
+	 * This is necessary for decrementing pageCount of notes that referenced these pages.
+	 */
+	@bindThis
+	private async deleteUserPages(user: any): Promise<void> {
+		this.logger.info(`Deleting pages for user ${user.id}...`);
+		
+		let totalDeleted = 0;
+
+		while (true) {
+			const pages = await this.pagesRepository.find({
+				where: { userId: user.id },
+				take: this.PAGE_BATCH_SIZE,
+				order: { id: 1 },
+			});
+
+			if (pages.length === 0) break;
+
+			for (const page of pages) {
+				await this.pageService.delete(user, page.id);
+			}
+
+			totalDeleted += pages.length;
+		}
+
+		this.logger.succ(`Deleted ${totalDeleted} page(s) for user ${user.id}`);
+	}
+
+	/**
+	 * Send account deletion confirmation email to the user (if verified email exists).
+	 */
+	@bindThis
+	private async sendDeletionNotificationEmail(userId: string): Promise<void> {
+		try {
+			const profile = await this.userProfilesRepository.findOneByOrFail({ userId });
+			
 			if (profile.email && profile.emailVerified) {
-				this.emailService.sendEmail(profile.email, 'Account deleted',
+				await this.emailService.sendEmail(
+					profile.email,
+					'Account deleted',
 					'Your account has been deleted.',
-					'Your account has been deleted.');
+					'Your account has been deleted.'
+				);
+				this.logger.info(`Deletion notification email sent to user ${userId}`);
+			} else {
+				this.logger.info(`No verified email for user ${userId}, skipping notification email`);
 			}
+		} catch (error) {
+			this.logger.warn(`Failed to send deletion notification email for user ${userId}:`, error);
+			// Don't throw - email is non-critical
 		}
-
-		// soft指定されている場合は物理削除しない
-		if (job.data.soft) {
-		// nop
-		} else {
-			await this.usersRepository.delete(job.data.user.id);
-		}
-
-		return 'Account deleted';
 	}
 }
