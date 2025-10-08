@@ -12,6 +12,19 @@ import { bindThis } from '@/decorators.js';
 import { IdService } from '@/core/IdService.js';
 import type { SelectQueryBuilder } from 'typeorm';
 
+/**
+ * Service that provides database query generation utilities
+ * 
+ * Core Responsibilities:
+ * - Pagination queries with ID or date-based cursors
+ * - Filtering queries for mutes, blocks, and suspensions
+ * - Visibility queries for note access control
+ * - Instance-level blocking and suspension
+ * 
+ * @remarks
+ * Query generation methods are used across timeline endpoints to ensure
+ * consistent access control and filtering behavior.
+ */
 @Injectable()
 export class QueryService {
 	constructor(
@@ -43,6 +56,46 @@ export class QueryService {
 	) {
 	}
 
+	/**
+	 * Helper method to add range condition and sorting to query
+	 */
+	private applyPaginationRange<T extends ObjectLiteral>(
+		q: SelectQueryBuilder<T>,
+		column: string,
+		sinceId: string | null | undefined,
+		untilId: string | null | undefined,
+	): void {
+		const ascending = sinceId && !untilId;
+		
+		if (sinceId) {
+			q.andWhere(`${column} > :sinceId`, { sinceId });
+		}
+		if (untilId) {
+			q.andWhere(`${column} < :untilId`, { untilId });
+		}
+		
+		q.orderBy(column, ascending ? 'ASC' : 'DESC');
+	}
+
+	/**
+	 * Adds pagination to a query builder
+	 * 
+	 * Supports both ID-based and date-based pagination:
+	 * - ID-based: Uses since/untilId for cursor pagination
+	 * - Date-based: Converts since/untilDate to IDs using IdService
+	 * 
+	 * Ordering Logic:
+	 * - ASC when only sinceId/sinceDate (newer items)
+	 * - DESC when untilId/untilDate or both (older items)
+	 * 
+	 * @param q - Query builder to modify
+	 * @param sinceId - Return items after this ID (exclusive)
+	 * @param untilId - Return items before this ID (exclusive)  
+	 * @param sinceDate - Return items after this timestamp
+	 * @param untilDate - Return items before this timestamp
+	 * @param targetColumn - Column to paginate on (default: 'id')
+	 * @returns Modified query builder for chaining
+	 */
 	public makePaginationQuery<T extends ObjectLiteral>(
 		q: SelectQueryBuilder<T>,
 		sinceId?: string | null,
@@ -51,43 +104,55 @@ export class QueryService {
 		untilDate?: number | null,
 		targetColumn = 'id',
 	): SelectQueryBuilder<T> {
-		if (sinceId && untilId) {
-			q.andWhere(`${q.alias}.${targetColumn} > :sinceId`, { sinceId: sinceId });
-			q.andWhere(`${q.alias}.${targetColumn} < :untilId`, { untilId: untilId });
-			q.orderBy(`${q.alias}.${targetColumn}`, 'DESC');
-		} else if (sinceId) {
-			q.andWhere(`${q.alias}.${targetColumn} > :sinceId`, { sinceId: sinceId });
-			q.orderBy(`${q.alias}.${targetColumn}`, 'ASC');
-		} else if (untilId) {
-			q.andWhere(`${q.alias}.${targetColumn} < :untilId`, { untilId: untilId });
-			q.orderBy(`${q.alias}.${targetColumn}`, 'DESC');
-		} else if (sinceDate && untilDate) {
-			q.andWhere(`${q.alias}.${targetColumn} > :sinceId`, { sinceId: this.idService.gen(sinceDate) });
-			q.andWhere(`${q.alias}.${targetColumn} < :untilId`, { untilId: this.idService.gen(untilDate) });
-			q.orderBy(`${q.alias}.${targetColumn}`, 'DESC');
-		} else if (sinceDate) {
-			q.andWhere(`${q.alias}.${targetColumn} > :sinceId`, { sinceId: this.idService.gen(sinceDate) });
-			q.orderBy(`${q.alias}.${targetColumn}`, 'ASC');
-		} else if (untilDate) {
-			q.andWhere(`${q.alias}.${targetColumn} < :untilId`, { untilId: this.idService.gen(untilDate) });
-			q.orderBy(`${q.alias}.${targetColumn}`, 'DESC');
-		} else {
-			q.orderBy(`${q.alias}.${targetColumn}`, 'DESC');
-		}
+		const column = `${q.alias}.${targetColumn}`;
+		
+		// Convert dates to IDs if provided
+		const effectiveSinceId = sinceDate ? this.idService.gen(sinceDate) : sinceId;
+		const effectiveUntilId = untilDate ? this.idService.gen(untilDate) : untilId;
+		
+		this.applyPaginationRange(q, column, effectiveSinceId, effectiveUntilId);
+		
 		return q;
 	}
 
 	/**
-	 * ミュートやブロックのようにすべてのタイムラインで共通に使用するフィルターを定義します。
-	 *
-	 * 特別な事情がない限り、各タイムラインはこの関数を呼び出してフィルターを適用してください。
-	 *
-	 * Notes for future maintainers:
-	 * 1) この関数で生成するクエリと同等の処理が FanoutTimelineEndpointService にあります。
-	 *    この関数を変更した場合、FanoutTimelineEndpointService の方も変更する必要があります。
-	 * 2) 以下のエンドポイントでは特別な事情があるため queryService のそれぞれの関数を呼び出しています。
-	 *    この関数を変更した場合、以下のエンドポイントの方も変更する必要があることがあります。
-	 *    - packages/backend/src/server/api/endpoints/clips/notes.ts
+	 * Helper method to exclude users from note queries based on a subquery
+	 * Applies to note author, reply author, and renote author
+	 */
+	private excludeUsersFromNote(
+		q: SelectQueryBuilder<any>,
+		noteColumn: string,
+		subquery: SelectQueryBuilder<any>,
+		userFields: string[] = ['userId', 'replyUserId', 'renoteUserId'],
+	): void {
+		for (const field of userFields) {
+			q.andWhere(new Brackets(qb => {
+				qb
+					.where(`${noteColumn}.${field} IS NULL`)
+					.orWhere(`${noteColumn}.${field} NOT IN (${subquery.getQuery()})`);
+			}));
+		}
+		q.setParameters(subquery.getParameters());
+	}
+
+	/**
+	 * Generates base filtering for all timeline queries
+	 * 
+	 * Applies common filters for:
+	 * - Blocked/suspended hosts
+	 * - Suspended users  
+	 * - Muted users and instances
+	 * - Blocked users
+	 * 
+	 * @remarks
+	 * IMPORTANT: This query generation must stay synchronized with FanoutTimelineEndpointService.
+	 * Changes here may also require updates to:
+	 * - FanoutTimelineEndpointService filtering logic
+	 * - packages/backend/src/server/api/endpoints/clips/notes.ts
+	 * 
+	 * @param query - Query builder to modify
+	 * @param me - Current user (null for anonymous)
+	 * @param options - Filter options
 	 */
 	@bindThis
 	public generateBaseNoteFilteringQuery(
@@ -101,17 +166,30 @@ export class QueryService {
 			excludeAuthor?: boolean,
 		} = {},
 	): void {
+		// Apply instance-level filters
 		this.generateBlockedHostQueryForNote(query, excludeAuthor);
 		this.generateSuspendedUserQueryForNote(query, excludeAuthor);
+		
+		// Apply user-level filters if authenticated
 		if (me) {
+			// Filter main note
 			this.generateMutedUserQueryForNotes(query, me, { excludeUserFromMute });
 			this.generateBlockedUserQueryForNotes(query, me);
+			
+			// Filter renotes (applies same filters to renoted content)
 			this.generateMutedUserQueryForNotes(query, me, { noteColumn: 'renote', excludeUserFromMute });
 			this.generateBlockedUserQueryForNotes(query, me, { noteColumn: 'renote' });
 		}
 	}
 
-	// ここでいうBlockedは被Blockedの意
+	/**
+	 * Filters notes from users who have blocked the current user
+	 * 
+	 * Excludes notes where:
+	 * - Note author has blocked me
+	 * - Reply author has blocked me
+	 * - Renote author has blocked me
+	 */
 	@bindThis
 	public generateBlockedUserQueryForNotes(
 		q: SelectQueryBuilder<any>,
@@ -126,27 +204,7 @@ export class QueryService {
 			.select('blocking.blockerId')
 			.where('blocking.blockeeId = :blockeeId', { blockeeId: me.id });
 
-		// 投稿の作者にブロックされていない かつ
-		// 投稿の返信先の作者にブロックされていない かつ
-		// 投稿の引用元の作者にブロックされていない
-		q
-			.andWhere(new Brackets(qb => {
-				qb
-					.where(`${noteColumn}.userId IS NULL`)
-					.orWhere(`${noteColumn}.userId NOT IN (${ blockingQuery.getQuery() })`);
-			}))
-			.andWhere(new Brackets(qb => {
-				qb
-					.where(`${noteColumn}.replyUserId IS NULL`)
-					.orWhere(`${noteColumn}.replyUserId NOT IN (${ blockingQuery.getQuery() })`);
-			}))
-			.andWhere(new Brackets(qb => {
-				qb
-					.where(`${noteColumn}.renoteUserId IS NULL`)
-					.orWhere(`${noteColumn}.renoteUserId NOT IN (${ blockingQuery.getQuery() })`);
-			}));
-
-		q.setParameters(blockingQuery.getParameters());
+		this.excludeUsersFromNote(q, noteColumn, blockingQuery);
 	}
 
 	@bindThis
@@ -182,6 +240,17 @@ export class QueryService {
 		q.setParameters(mutedQuery.getParameters());
 	}
 
+	/**
+	 * Filters notes from muted users and instances
+	 * 
+	 * Excludes notes where:
+	 * - Note/reply/renote author is muted by me
+	 * - Note/reply/renote author's instance is muted by me
+	 * 
+	 * @param q - Query builder to modify
+	 * @param me - Current user
+	 * @param options - Mute filter options
+	 */
 	@bindThis
 	public generateMutedUserQueryForNotes(
 		q: SelectQueryBuilder<any>,
@@ -194,6 +263,7 @@ export class QueryService {
 			noteColumn?: string,
 		} = {},
 	): void {
+		// Query for muted users
 		const mutingQuery = this.mutingsRepository.createQueryBuilder('muting')
 			.select('muting.muteeId')
 			.where('muting.muterId = :muterId', { muterId: me.id });
@@ -202,47 +272,24 @@ export class QueryService {
 			mutingQuery.andWhere('muting.muteeId != :excludeId', { excludeId: excludeUserFromMute });
 		}
 
+		// Query for muted instances
 		const mutingInstanceQuery = this.userProfilesRepository.createQueryBuilder('user_profile')
 			.select('user_profile.mutedInstances')
 			.where('user_profile.userId = :muterId', { muterId: me.id });
 
-		// 投稿の作者をミュートしていない かつ
-		// 投稿の返信先の作者をミュートしていない かつ
-		// 投稿の引用元の作者をミュートしていない
-		q
-			.andWhere(new Brackets(qb => {
-				qb
-					.where(`${noteColumn}.userId IS NULL`)
-					.orWhere(`${noteColumn}.userId NOT IN (${ mutingQuery.getQuery() })`);
-			}))
-			.andWhere(new Brackets(qb => {
-				qb
-					.where(`${noteColumn}.replyUserId IS NULL`)
-					.orWhere(`${noteColumn}.replyUserId NOT IN (${ mutingQuery.getQuery() })`);
-			}))
-			.andWhere(new Brackets(qb => {
-				qb
-					.where(`${noteColumn}.renoteUserId IS NULL`)
-					.orWhere(`${noteColumn}.renoteUserId NOT IN (${ mutingQuery.getQuery() })`);
-			}))
-			// mute instances
-			.andWhere(new Brackets(qb => {
-				qb
-					.andWhere(`${noteColumn}.userHost IS NULL`)
-					.orWhere(`NOT ((${ mutingInstanceQuery.getQuery() })::jsonb ? ${noteColumn}.userHost)`);
-			}))
-			.andWhere(new Brackets(qb => {
-				qb
-					.where(`${noteColumn}.replyUserHost IS NULL`)
-					.orWhere(`NOT ((${ mutingInstanceQuery.getQuery() })::jsonb ? ${noteColumn}.replyUserHost)`);
-			}))
-			.andWhere(new Brackets(qb => {
-				qb
-					.where(`${noteColumn}.renoteUserHost IS NULL`)
-					.orWhere(`NOT ((${ mutingInstanceQuery.getQuery() })::jsonb ? ${noteColumn}.renoteUserHost)`);
-			}));
+		// Exclude muted users from note/reply/renote
+		this.excludeUsersFromNote(q, noteColumn, mutingQuery);
 
-		q.setParameters(mutingQuery.getParameters());
+		// Exclude muted instances from note/reply/renote
+		const hostFields = ['userHost', 'replyUserHost', 'renoteUserHost'];
+		for (const field of hostFields) {
+			q.andWhere(new Brackets(qb => {
+				qb
+					.where(`${noteColumn}.${field} IS NULL`)
+					.orWhere(`NOT ((${mutingInstanceQuery.getQuery()})::jsonb ? ${noteColumn}.${field})`);
+			}));
+		}
+
 		q.setParameters(mutingInstanceQuery.getParameters());
 	}
 
