@@ -40,48 +40,77 @@ export class IdService {
 	}
 
 	/**
-	 * 時間を元にIDを生成します(省略時は現在日時)
-	 * @param time 日時
+	 * Generate an ID based on the specified timestamp (defaults to current time)
+	 * @param time Timestamp in milliseconds (optional, defaults to now)
+	 * @returns Generated ID string
+	 * @throws Error if ID generation method is not recognized
 	 */
 	@bindThis
 	public gen(time?: number): string {
-		const t = (!time || (time > Date.now())) ? Date.now() : time;
+		// Use current time if not provided or if provided time is in the future
+		const timestamp = (!time || (time > Date.now())) ? Date.now() : time;
 
-		switch (this.method) {
-			case 'aid': return genAid(t);
-			case 'aidx': return genAidx(t);
-			case 'meid': return genMeid(t);
-			case 'meidg': return genMeidg(t);
-			case 'ulid': return ulid(t);
-			case 'objectid': return genObjectId(t);
-			default: throw new Error('unrecognized id generation method');
+		try {
+			switch (this.method) {
+				case 'aid': return genAid(timestamp);
+				case 'aidx': return genAidx(timestamp);
+				case 'meid': return genMeid(timestamp);
+				case 'meidg': return genMeidg(timestamp);
+				case 'ulid': return ulid(timestamp);
+				case 'objectid': return genObjectId(timestamp);
+				default: throw new Error(`Unrecognized ID generation method: ${this.method}`);
+			}
+		} catch (error) {
+			console.error(`Failed to generate ID using method '${this.method}':`, error);
+			throw error;
 		}
 	}
 
+	/**
+	 * Parse an ID to extract its creation date
+	 * @param id ID string to parse
+	 * @returns Object containing the Date when the ID was created
+	 * @throws Error if ID generation method is not recognized or parsing fails
+	 */
 	@bindThis
 	public parse(id: string): { date: Date; } {
-		switch (this.method) {
-			case 'aid': return parseAid(id);
-			case 'aidx': return parseAidx(id);
-			case 'objectid': return parseObjectId(id);
-			case 'meid': return parseMeid(id);
-			case 'meidg': return parseMeidg(id);
-			case 'ulid': return parseUlid(id);
-			default: throw new Error('unrecognized id generation method');
+		try {
+			switch (this.method) {
+				case 'aid': return parseAid(id);
+				case 'aidx': return parseAidx(id);
+				case 'objectid': return parseObjectId(id);
+				case 'meid': return parseMeid(id);
+				case 'meidg': return parseMeidg(id);
+				case 'ulid': return parseUlid(id);
+				default: throw new Error(`Unrecognized ID generation method: ${this.method}`);
+			}
+		} catch (error) {
+			console.error(`Failed to parse ID '${id}' using method '${this.method}':`, error);
+			throw error;
 		}
 	}
 
-	// Note: additional is at most 64 bits
+	/**
+	 * Parse an ID to extract both creation timestamp and additional data
+	 * @param id ID string to parse
+	 * @returns Object containing the timestamp (in milliseconds) and additional data (up to 64 bits)
+	 * @throws Error if ID generation method is not recognized or parsing fails
+	 */
 	@bindThis
 	public parseFull(id: string): { date: number; additional: bigint; } {
-		switch (this.method) {
-			case 'aid': return parseAidFull(id);
-			case 'aidx': return parseAidxFull(id);
-			case 'objectid': return parseObjectIdFull(id);
-			case 'meid': return parseMeidFull(id);
-			case 'meidg': return parseMeidgFull(id);
-			case 'ulid': return parseUlidFull(id);
-			default: throw new Error('unrecognized id generation method');
+		try {
+			switch (this.method) {
+				case 'aid': return parseAidFull(id);
+				case 'aidx': return parseAidxFull(id);
+				case 'objectid': return parseObjectIdFull(id);
+				case 'meid': return parseMeidFull(id);
+				case 'meidg': return parseMeidgFull(id);
+				case 'ulid': return parseUlidFull(id);
+				default: throw new Error(`Unrecognized ID generation method: ${this.method}`);
+			}
+		} catch (error) {
+			console.error(`Failed to parse full ID '${id}' using method '${this.method}':`, error);
+			throw error;
 		}
 	}
 }

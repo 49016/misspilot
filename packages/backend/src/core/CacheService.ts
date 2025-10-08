@@ -23,7 +23,8 @@ export class CacheService implements OnApplicationShutdown {
 	public userProfileCache: RedisKVCache<MiUserProfile>;
 	public userMutingsCache: RedisKVCache<Set<string>>;
 	public userBlockingCache: RedisKVCache<Set<string>>;
-	public userBlockedCache: RedisKVCache<Set<string>>; // NOTE: 「被」Blockキャッシュ
+	/** Cache for users who have blocked this user (被Block - passive blocking) */
+	public userBlockedCache: RedisKVCache<Set<string>>;
 	public renoteMutingsCache: RedisKVCache<Set<string>>;
 	public userFollowingsCache: RedisKVCache<Record<string, Pick<MiFollowing, 'withReplies'> | undefined>>;
 
@@ -62,11 +63,17 @@ export class CacheService implements OnApplicationShutdown {
 		this.uriPersonCache = new MemoryKVCache<MiUser | null>(1000 * 60 * 5); // 5m
 
 		this.userProfileCache = new RedisKVCache<MiUserProfile>(this.redisClient, 'userProfile', {
-			lifetime: 1000 * 60 * 30, // 30m
-			memoryCacheLifetime: 1000 * 60, // 1m
+			lifetime: 1000 * 60 * 30, // 30 minutes
+			memoryCacheLifetime: 1000 * 60, // 1 minute
 			fetcher: (key) => this.userProfilesRepository.findOneByOrFail({ userId: key }),
 			toRedisConverter: (value) => JSON.stringify(value),
-			fromRedisConverter: (value) => JSON.parse(value), // TODO: date型の考慮
+			fromRedisConverter: (value) => {
+				// TODO: Handle Date type conversion properly
+				// Currently dates are serialized as strings in JSON
+				const parsed = JSON.parse(value);
+				// Future: Convert date strings back to Date objects if needed
+				return parsed;
+			},
 		});
 
 		this.userMutingsCache = new RedisKVCache<Set<string>>(this.redisClient, 'userMutings', {
@@ -115,39 +122,89 @@ export class CacheService implements OnApplicationShutdown {
 			fromRedisConverter: (value) => JSON.parse(value),
 		});
 
-		// NOTE: チャンネルのフォロー状況キャッシュはChannelFollowingServiceで行っている
+		// Note: Channel following status cache is handled by ChannelFollowingService
 
 		this.redisForSub.on('message', this.onMessage);
 	}
 
 	@bindThis
-	private async onMessage(_: string, data: string): Promise<void> {
-		const obj = JSON.parse(data);
+	private async onMessage(_channel: string, data: string): Promise<void> {
+		try {
+			const obj = JSON.parse(data);
 
-		if (obj.channel === 'internal') {
-			const { type, body } = obj.message as GlobalEvents['internal']['payload'];
-			switch (type) {
-				case 'userChangeSuspendedState':
-				case 'userChangeDeletedState':
-				case 'remoteUserUpdated':
-				case 'localUserUpdated': {
-					const user = await this.usersRepository.findOneBy({ id: body.id });
-					if (user == null) {
-						this.userByIdCache.delete(body.id);
-						this.localUserByIdCache.delete(body.id);
-						for (const [k, v] of this.uriPersonCache.entries) {
-							if (v.value?.id === body.id) {
-								this.uriPersonCache.delete(k);
-							}
-						}
-					} else {
-						this.userByIdCache.set(user.id, user);
-						for (const [k, v] of this.uriPersonCache.entries) {
-							if (v.value?.id === user.id) {
-								this.uriPersonCache.set(k, user);
-							}
-						}
-						if (this.userEntityService.isLocalUser(user)) {
+			if (obj.channel === 'internal') {
+				const { type, body } = obj.message as GlobalEvents['internal']['payload'];
+				switch (type) {
+					case 'userChangeSuspendedState':
+					case 'userChangeDeletedState':
+					case 'remoteUserUpdated':
+					case 'localUserUpdated': {
+						await this.handleUserUpdate(body.id);
+						break;
+					}
+					default:
+						// Unknown event type - no action needed
+						break;
+				}
+			}
+		} catch (error) {
+			console.error('Failed to process cache invalidation message:', error);
+		}
+	}
+
+	/**
+	 * Handle user update by refreshing or invalidating relevant caches
+	 */
+	@bindThis
+	private async handleUserUpdate(userId: string): Promise<void> {
+		try {
+			const user = await this.usersRepository.findOneBy({ id: userId });
+			
+			if (user == null) {
+				// User no longer exists - invalidate all caches
+				this.invalidateUserCaches(userId);
+			} else {
+				// User exists - update caches with fresh data
+				this.updateUserCaches(user);
+			}
+		} catch (error) {
+			console.error(`Failed to handle user update for ${userId}:`, error);
+			// On error, invalidate caches to be safe
+			this.invalidateUserCaches(userId);
+		}
+	}
+
+	/**
+	 * Invalidate all cache entries for a given user
+	 */
+	@bindThis
+	private invalidateUserCaches(userId: string): void {
+		this.userByIdCache.delete(userId);
+		this.localUserByIdCache.delete(userId);
+		
+		// Clear URI cache entries pointing to this user
+		for (const [key, value] of this.uriPersonCache.entries) {
+			if (value.value?.id === userId) {
+				this.uriPersonCache.delete(key);
+			}
+		}
+	}
+
+	/**
+	 * Update cache entries with fresh user data
+	 */
+	@bindThis
+	private updateUserCaches(user: MiUser): void {
+		this.userByIdCache.set(user.id, user);
+		
+		// Update URI cache entries
+		for (const [key, value] of this.uriPersonCache.entries) {
+			if (value.value?.id === user.id) {
+				this.uriPersonCache.set(key, user);
+			}
+		}
+		
+		if (this.userEntityService.isLocalUser(user)) {
 							this.localUserByNativeTokenCache.set(user.token!, user);
 							this.localUserByIdCache.set(user.id, user);
 						}
