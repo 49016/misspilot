@@ -9,37 +9,53 @@ import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 import locales from '../../locales/index.js';
 import meta from '../../package.json' with { type: 'json' };
-const watch = process.argv[2]?.includes('watch');
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
-console.log('Starting SW building...');
+const WATCH_MODE_ARG = 'watch';
+const BUILD_MODE_PRODUCTION = 'production';
+const ENTRY_POINT = `${__dirname}/src/sw.ts`;
+const OUTPUT_DIR = `${__dirname}/../../built/_sw_dist_`;
+const TSCONFIG_PATH = `${__dirname}/tsconfig.json`;
+const PERF_PREFIX = 'Misskey:';
+
+const isWatchMode = process.argv[2]?.includes(WATCH_MODE_ARG);
+const isProduction = process.env.NODE_ENV === BUILD_MODE_PRODUCTION;
+
+function createDefines() {
+	const nodeEnv = process.env.NODE_ENV ?? '';
+	const langs = Object.entries(locales).map(([k, v]) => [k, v._lang_]);
+	
+	return {
+		_DEV_: JSON.stringify(!isProduction),
+		_ENV_: JSON.stringify(nodeEnv),
+		_LANGS_: JSON.stringify(langs),
+		_PERF_PREFIX_: JSON.stringify(PERF_PREFIX),
+		_VERSION_: JSON.stringify(meta.version),
+	};
+}
 
 /** @type {esbuild.BuildOptions} */
 const buildOptions = {
 	absWorkingDir: __dirname,
 	bundle: true,
-	define: {
-		_DEV_: JSON.stringify(process.env.NODE_ENV !== 'production'),
-		_ENV_: JSON.stringify(process.env.NODE_ENV ?? ''), // `NODE_ENV`が`undefined`なとき`JSON.stringify`が`undefined`を返してエラーになってしまうので`??`を使っている
-		_LANGS_: JSON.stringify(Object.entries(locales).map(([k, v]) => [k, v._lang_])),
-		_PERF_PREFIX_: JSON.stringify('Misskey:'),
-		_VERSION_: JSON.stringify(meta.version),
-	},
-	entryPoints: [`${__dirname}/src/sw.ts`],
+	define: createDefines(),
+	entryPoints: [ENTRY_POINT],
 	format: 'esm',
 	loader: {
 		'.ts': 'ts',
 	},
-	minify: process.env.NODE_ENV === 'production',
+	minify: isProduction,
 	outbase: `${__dirname}/src`,
-	outdir: `${__dirname}/../../built/_sw_dist_`,
+	outdir: OUTPUT_DIR,
 	treeShaking: true,
-	tsconfig: `${__dirname}/tsconfig.json`,
+	tsconfig: TSCONFIG_PATH,
 };
 
-(async () => {
-	if (!watch) {
+async function buildServiceWorker() {
+	console.log('Starting SW building...');
+	
+	if (!isWatchMode) {
 		await esbuild.build(buildOptions);
 		console.log('done');
 	} else {
@@ -47,4 +63,6 @@ const buildOptions = {
 		await context.watch();
 		console.log('watching...');
 	}
-})();
+}
+
+buildServiceWorker();

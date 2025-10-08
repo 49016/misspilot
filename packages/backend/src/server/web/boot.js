@@ -7,97 +7,141 @@
 
 // ブロックの中に入れないと、定義した変数がブラウザのグローバルスコープに登録されてしまい邪魔なので
 (async () => {
+	const ERROR_CODE_SOMETHING_HAPPENED = 'SOMETHING_HAPPENED';
+	const ERROR_CODE_PROMISE_REJECTION = 'SOMETHING_HAPPENED_IN_PROMISE';
+	const ERROR_CODE_FORCED = 'FORCED_ERROR';
+	const ERROR_CODE_APP_IMPORT = 'APP_IMPORT';
+	const STORAGE_KEY_FORCE_ERROR = 'forceError';
+	const STORAGE_KEY_LANG = 'lang';
+	const STORAGE_KEY_SAFE_MODE = 'isSafeMode';
+	const STORAGE_KEY_THEME = 'theme';
+	const STORAGE_KEY_COLOR_SCHEME = 'colorScheme';
+	const DEFAULT_LANG = 'en-US';
+	const THEME_PROPERTY_PREFIX = '--MI_THEME-';
+	const HTML_THEME_COLOR_KEY = 'htmlThemeColor';
+
 	window.onerror = (e) => {
 		console.error(e);
-		renderError('SOMETHING_HAPPENED', e);
+		renderError(ERROR_CODE_SOMETHING_HAPPENED, e);
 	};
 	window.onunhandledrejection = (e) => {
 		console.error(e);
-		renderError('SOMETHING_HAPPENED_IN_PROMISE', e.reason || e);
+		renderError(ERROR_CODE_PROMISE_REJECTION, e.reason || e);
 	};
 
-	let forceError = localStorage.getItem('forceError');
+	const forceError = localStorage.getItem(STORAGE_KEY_FORCE_ERROR);
 	if (forceError != null) {
-		renderError('FORCED_ERROR', 'This error is forced by having forceError in local storage.');
+		renderError(ERROR_CODE_FORCED, 'This error is forced by having forceError in local storage.');
 		return;
 	}
 
 	//#region Detect language
-	const supportedLangs = LANGS;
-	/** @type { string } */
-	let lang = localStorage.getItem('lang');
-	if (lang == null || !supportedLangs.includes(lang)) {
-		if (supportedLangs.includes(navigator.language)) {
-			lang = navigator.language;
-		} else {
-			lang = supportedLangs.find(x => x.split('-')[0] === navigator.language);
-
-			// Fallback
-			if (lang == null) lang = 'en-US';
+	function detectLanguage() {
+		const supportedLangs = LANGS;
+		let lang = localStorage.getItem(STORAGE_KEY_LANG);
+		
+		if (lang == null || !supportedLangs.includes(lang)) {
+			if (supportedLangs.includes(navigator.language)) {
+				lang = navigator.language;
+			} else {
+				lang = supportedLangs.find(x => x.split('-')[0] === navigator.language);
+				if (lang == null) {
+					lang = DEFAULT_LANG;
+				}
+			}
 		}
-	}
 
-	// for https://github.com/misskey-dev/misskey/issues/10202
-	if (lang == null || lang.toString == null || lang.toString() === 'null') {
-		console.error('invalid lang value detected!!!', typeof lang, lang);
-		lang = 'en-US';
+		// for https://github.com/misskey-dev/misskey/issues/10202
+		if (lang == null || lang.toString == null || lang.toString() === 'null') {
+			console.error('invalid lang value detected!!!', typeof lang, lang);
+			lang = DEFAULT_LANG;
+		}
+		
+		return lang;
 	}
+	
+	const lang = detectLanguage();
 	//#endregion
 
 	//#region Script
+	function getAppScriptPath() {
+		return CLIENT_ENTRY ? `/vite/${CLIENT_ENTRY.replace('scripts', lang)}` : '/vite/src/_boot_.ts';
+	}
+
 	async function importAppScript() {
-		await import(CLIENT_ENTRY ? `/vite/${CLIENT_ENTRY.replace('scripts', lang)}` : '/vite/src/_boot_.ts')
-			.catch(async e => {
-				console.error(e);
-				renderError('APP_IMPORT', e);
-			});
-	}
-
-	// タイミングによっては、この時点でDOMの構築が済んでいる場合とそうでない場合とがある
-	if (document.readyState !== 'loading') {
-		importAppScript();
-	} else {
-		window.addEventListener('DOMContentLoaded', () => {
-			importAppScript();
-		});
-	}
-	//#endregion
-
-	let isSafeMode = (localStorage.getItem('isSafeMode') === 'true');
-
-	if (!isSafeMode) {
-		const urlParams = new URLSearchParams(window.location.search);
-
-		if (urlParams.has('safemode') && urlParams.get('safemode') === 'true') {
-			localStorage.setItem('isSafeMode', 'true');
-			isSafeMode = true;
+		try {
+			await import(getAppScriptPath());
+		} catch (e) {
+			console.error(e);
+			renderError(ERROR_CODE_APP_IMPORT, e);
 		}
 	}
 
-	//#region Theme
-	if (!isSafeMode) {
-		const theme = localStorage.getItem('theme');
-		if (theme) {
-			for (const [k, v] of Object.entries(JSON.parse(theme))) {
-				document.documentElement.style.setProperty(`--MI_THEME-${k}`, v.toString());
+	function initAppScript() {
+		// タイミングによっては、この時点でDOMの構築が済んでいる場合とそうでない場合とがある
+		if (document.readyState !== 'loading') {
+			importAppScript();
+		} else {
+			window.addEventListener('DOMContentLoaded', importAppScript);
+		}
+	}
+	
+	initAppScript();
+	//#endregion
 
-				// HTMLの theme-color 適用
-				if (k === 'htmlThemeColor') {
-					for (const tag of document.head.children) {
-						if (tag.tagName === 'META' && tag.getAttribute('name') === 'theme-color') {
-							tag.setAttribute('content', v);
-							break;
-						}
-					}
-				}
+	function checkSafeModeFromUrl() {
+		const urlParams = new URLSearchParams(window.location.search);
+		if (urlParams.has('safemode') && urlParams.get('safemode') === 'true') {
+			localStorage.setItem(STORAGE_KEY_SAFE_MODE, 'true');
+			return true;
+		}
+		return false;
+	}
+
+	let isSafeMode = (localStorage.getItem(STORAGE_KEY_SAFE_MODE) === 'true');
+	if (!isSafeMode) {
+		isSafeMode = checkSafeModeFromUrl();
+	}
+
+	//#region Theme
+	function updateThemeColor(color) {
+		for (const tag of document.head.children) {
+			if (tag.tagName === 'META' && tag.getAttribute('name') === 'theme-color') {
+				tag.setAttribute('content', color);
+				break;
 			}
 		}
 	}
 
-	const colorScheme = localStorage.getItem('colorScheme');
-	if (colorScheme) {
-		document.documentElement.style.setProperty('color-scheme', colorScheme);
+	function applyThemeProperty(key, value) {
+		document.documentElement.style.setProperty(`${THEME_PROPERTY_PREFIX}${key}`, value.toString());
+		
+		if (key === HTML_THEME_COLOR_KEY) {
+			updateThemeColor(value);
+		}
 	}
+
+	function applyTheme() {
+		const theme = localStorage.getItem(STORAGE_KEY_THEME);
+		if (theme) {
+			const themeData = JSON.parse(theme);
+			for (const [key, value] of Object.entries(themeData)) {
+				applyThemeProperty(key, value);
+			}
+		}
+	}
+
+	function applyColorScheme() {
+		const colorScheme = localStorage.getItem(STORAGE_KEY_COLOR_SCHEME);
+		if (colorScheme) {
+			document.documentElement.style.setProperty('color-scheme', colorScheme);
+		}
+	}
+
+	if (!isSafeMode) {
+		applyTheme();
+	}
+	applyColorScheme();
 	//#endregion
 
 	const fontSize = localStorage.getItem('fontSize');
