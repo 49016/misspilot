@@ -5,12 +5,25 @@
 
 import Chart from '../../core.js';
 
+/**
+ * Chart name for ActivityPub request metrics
+ */
 export const name = 'apRequest';
 
+/**
+ * Schema for ActivityPub request chart
+ * Tracks delivery and inbox metrics
+ */
 export const schema = {
-	'deliverFailed': { },
-	'deliverSucceeded': { },
-	'inboxReceived': { },
+	/** Failed delivery attempts */
+	'deliverFailed': {},
+	/** Successful delivery attempts */
+	'deliverSucceeded': {},
+	/** Received inbox requests */
+	'inboxReceived': {},
 } as const;
 
+/**
+ * Chart entity for ActivityPub requests
+ */
 export const entity = Chart.schemaToEntity(name, schema);
