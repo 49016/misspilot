@@ -4,24 +4,29 @@
  */
 
 const fs = require('fs');
-const packageJsonPath = __dirname + '/../package.json'
+const path = require('path');
+
+const rootDir = path.join(__dirname, '..');
+const packageJsonPath = path.join(rootDir, 'package.json');
+const builtDir = path.join(rootDir, 'built');
+const metaJsonPath = path.join(builtDir, 'meta.json');
 
 function build() {
 	try {
-		const json = fs.readFileSync(packageJsonPath, 'utf-8')
+		const json = fs.readFileSync(packageJsonPath, 'utf-8');
 		const meta = JSON.parse(json);
-		fs.mkdirSync(__dirname + '/../built', { recursive: true });
-		fs.writeFileSync(__dirname + '/../built/meta.json', JSON.stringify({ version: meta.version }), 'utf-8');
+		fs.mkdirSync(builtDir, { recursive: true });
+		fs.writeFileSync(metaJsonPath, JSON.stringify({ version: meta.version }), 'utf-8');
 	} catch (e) {
-		console.error(e)
+		console.error(e);
 	}
 }
 
 build();
 
-if (process.argv.includes("--watch")) {
+if (process.argv.includes('--watch')) {
 	fs.watch(packageJsonPath, (event, filename) => {
-		console.log(`update ${filename} ...`)
-		build()
-	})
+		console.log(`update ${filename} ...`);
+		build();
+	});
 }

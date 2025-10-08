@@ -4,13 +4,13 @@
  */
 
 export class Testcaptcha1728550878802 {
-    name = 'Testcaptcha1728550878802'
+	name = 'Testcaptcha1728550878802';
 
-    async up(queryRunner) {
+	async up(queryRunner) {
 			await queryRunner.query(`ALTER TABLE "meta" ADD "enableTestcaptcha" boolean NOT NULL DEFAULT false`);
-    }
+	}
 
-    async down(queryRunner) {
+	async down(queryRunner) {
 			await queryRunner.query(`ALTER TABLE "meta" DROP COLUMN "enableTestcaptcha"`);
-    }
+	}
 }

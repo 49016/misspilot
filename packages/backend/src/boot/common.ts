@@ -13,30 +13,66 @@ import { ServerStatsService } from '@/daemons/ServerStatsService.js';
 import { ServerService } from '@/server/ServerService.js';
 import { MainModule } from '@/MainModule.js';
 
+/**
+ * Initialize and start the main server application
+ * This includes the HTTP server and background services for charts and stats
+ * @returns The NestJS application context
+ */
 export async function server() {
-	const app = await NestFactory.createApplicationContext(MainModule, {
-		logger: new NestLogger(),
-	});
+	try {
+		const app = await NestFactory.createApplicationContext(MainModule, {
+			logger: new NestLogger(),
+		});
 
-	const serverService = app.get(ServerService);
-	await serverService.launch();
+		const serverService = app.get(ServerService);
+		await serverService.launch();
 
-	if (process.env.NODE_ENV !== 'test') {
-		app.get(ChartManagementService).start();
-		app.get(QueueStatsService).start();
-		app.get(ServerStatsService).start();
+		// Start background services (disabled during testing)
+		if (process.env.NODE_ENV !== 'test') {
+			const chartService = app.get(ChartManagementService);
+			const queueStatsService = app.get(QueueStatsService);
+			const serverStatsService = app.get(ServerStatsService);
+
+			await Promise.all([
+				chartService.start(),
+				queueStatsService.start(),
+				serverStatsService.start(),
+			]);
+
+			console.log('Background services started successfully');
+		}
+
+		return app;
+	} catch (error) {
+		console.error('Failed to initialize server:', error);
+		throw new Error(`Server initialization failed: ${error instanceof Error ? error.message : String(error)}`);
 	}
-
-	return app;
 }
 
+/**
+ * Initialize and start the job queue processor
+ * Handles background jobs and chart management
+ * @returns The NestJS application context for the job queue
+ */
 export async function jobQueue() {
-	const jobQueue = await NestFactory.createApplicationContext(QueueProcessorModule, {
-		logger: new NestLogger(),
-	});
+	try {
+		const jobQueue = await NestFactory.createApplicationContext(QueueProcessorModule, {
+			logger: new NestLogger(),
+		});
 
-	jobQueue.get(QueueProcessorService).start();
-	jobQueue.get(ChartManagementService).start();
+		const queueProcessor = jobQueue.get(QueueProcessorService);
+		const chartManagement = jobQueue.get(ChartManagementService);
 
-	return jobQueue;
+		await Promise.all([
+			queueProcessor.start(),
+			chartManagement.start(),
+		]);
+
+		console.log('Job queue processor started successfully');
+
+		return jobQueue;
+	} catch (error) {
+		console.error('Failed to initialize job queue:', error);
+		throw new Error(`Job queue initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+	}
 }

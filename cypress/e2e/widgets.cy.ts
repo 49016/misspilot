@@ -3,19 +3,23 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+const ADMIN_USERNAME = 'admin';
+const ADMIN_PASSWORD = 'pass';
+const TEST_USER = 'alice';
+const TEST_PASSWORD = 'alice1234';
+const WAIT_AFTER_TEST = 1000;
+const VIEWPORT = 'macbook-16';
+const EXPECTED_INITIAL_WIDGETS = 3;
+const WIDGETS_AFTER_REMOVE = 2;
+
 /* flaky
 describe('After user signed in', () => {
 	beforeEach(() => {
 		cy.resetState();
-		cy.viewport('macbook-16');
-
-		// インスタンス初期セットアップ
-		cy.registerUser('admin', 'pass', true);
-
-		// ユーザー作成
-		cy.registerUser('alice', 'alice1234');
-
-		cy.login('alice', 'alice1234');
+		cy.viewport(VIEWPORT);
+		cy.registerUser(ADMIN_USERNAME, ADMIN_PASSWORD, true);
+		cy.registerUser(TEST_USER, TEST_PASSWORD);
+		cy.login(TEST_USER, TEST_PASSWORD);
 
 		// アカウント初期設定ウィザード
 		cy.get('[data-cy-user-setup] [data-cy-modal-window-close]').click();
@@ -25,22 +29,22 @@ describe('After user signed in', () => {
 	afterEach(() => {
 		// テスト終了直前にページ遷移するようなテストケース(例えばアカウント作成)だと、たぶんCypressのバグでブラウザの内容が次のテストケースに引き継がれてしまう(例えばアカウントが作成し終わった段階からテストが始まる)。
 		// waitを入れることでそれを防止できる
-		cy.wait(1000);
+		cy.wait(WAIT_AFTER_TEST);
 	});
 
-  it('widget edit toggle is visible', () => {
+	it('widget edit toggle is visible', () => {
 		cy.get('[data-cy-widget-edit]').should('be.visible');
-  });
+	});
 
 	it('widget select should be visible in edit mode', () => {
 		cy.get('[data-cy-widget-edit]').click();
 		cy.get('[data-cy-widget-select]').should('be.visible');
-  });
+	});
 
 	it('first widget should be removed', () => {
 		cy.get('[data-cy-widget-edit]').click();
 		cy.get('[data-cy-customize-container]:first-child [data-cy-customize-container-remove]._button').click();
-		cy.get('[data-cy-customize-container]').should('have.length', 2);
+		cy.get('[data-cy-customize-container]').should('have.length', WIDGETS_AFTER_REMOVE);
 	});
 
 	function buildWidgetTest(widgetName) {

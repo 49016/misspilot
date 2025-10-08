@@ -4,13 +4,13 @@
  */
 
 export class RoleCopyOnMoveAccount1743558299182 {
-    name = 'RoleCopyOnMoveAccount1743558299182'
+	name = 'RoleCopyOnMoveAccount1743558299182';
 
-    async up(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "role" ADD "preserveAssignmentOnMoveAccount" boolean NOT NULL DEFAULT false`);
-    }
+	async up(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "role" ADD "preserveAssignmentOnMoveAccount" boolean NOT NULL DEFAULT false`);
+	}
 
-    async down(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "role" DROP COLUMN "preserveAssignmentOnMoveAccount"`);
-    }
+	async down(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "role" DROP COLUMN "preserveAssignmentOnMoveAccount"`);
+	}
 }

@@ -4,13 +4,13 @@
  */
 
 export class EntrancePageStyle1755574887486 {
-    name = 'EntrancePageStyle1755574887486'
+	name = 'EntrancePageStyle1755574887486';
 
-    async up(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "meta" ADD "clientOptions" jsonb NOT NULL DEFAULT '{}'`);
-    }
+	async up(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "meta" ADD "clientOptions" jsonb NOT NULL DEFAULT '{}'`);
+	}
 
-    async down(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "meta" DROP COLUMN "clientOptions"`);
-    }
+	async down(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "meta" DROP COLUMN "clientOptions"`);
+	}
 }

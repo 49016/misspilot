@@ -7,10 +7,17 @@
 
 import * as mfm from 'mfm-js';
 
+const MENTION_NODE_TYPE = 'mention';
+
+/**
+ * Extract mention properties from MFM nodes
+ * @param nodes - Array of MFM nodes to extract mentions from
+ * @returns Array of mention properties
+ * @todo Remove duplicates
+ */
 export function extractMentions(nodes: mfm.MfmNode[]): mfm.MfmMention['props'][] {
-	// TODO: 重複を削除
-	const mentionNodes = mfm.extract(nodes, (node) => node.type === 'mention') as mfm.MfmMention[];
-	const mentions = mentionNodes.map(x => x.props);
+	const mentionNodes = mfm.extract(nodes, (node) => node.type === MENTION_NODE_TYPE) as mfm.MfmMention[];
+	const mentions = mentionNodes.map(node => node.props);
 
 	return mentions;
 }

@@ -4,13 +4,13 @@
  */
 
 export class Chat51742721896936 {
-    name = 'Chat51742721896936'
+	name = 'Chat51742721896936';
 
-    async up(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "chat_room_invitation" ADD "ignored" boolean NOT NULL DEFAULT false`);
-    }
+	async up(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "chat_room_invitation" ADD "ignored" boolean NOT NULL DEFAULT false`);
+	}
 
-    async down(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "chat_room_invitation" DROP COLUMN "ignored"`);
-    }
+	async down(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "chat_room_invitation" DROP COLUMN "ignored"`);
+	}
 }

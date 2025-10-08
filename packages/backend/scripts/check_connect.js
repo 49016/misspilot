@@ -16,7 +16,7 @@ async function connectToPostgres() {
 }
 
 async function connectToRedis(redisOptions) {
-	return await new Promise(async (resolve, reject) => {
+	return new Promise((resolve, reject) => {
 		const redis = new Redis({
 			...redisOptions,
 			lazyConnect: true,
@@ -25,32 +25,26 @@ async function connectToRedis(redisOptions) {
 		});
 		redis.on('error', e => reject(e));
 
-		try {
-			await redis.connect();
-			resolve();
-
-		} catch (e) {
-			reject(e);
-
-		} finally {
-			redis.disconnect(false);
-		}
+		redis.connect()
+			.then(() => resolve())
+			.catch(e => reject(e))
+			.finally(() => redis.disconnect(false));
 	});
 }
 
-// If not all of these are defined, the default one gets reused.
-// so we use a Set to only try connecting once to each **uniq** redis.
-const promises = Array
-	.from(new Set([
+function getUniqueRedisConfigs() {
+	// If not all of these are defined, the default one gets reused.
+	// so we use a Set to only try connecting once to each **unique** redis.
+	return Array.from(new Set([
 		config.redis,
 		config.redisForPubsub,
 		config.redisForJobQueue,
 		config.redisForTimelines,
 		config.redisForReactions,
-	]))
-	.map(connectToRedis)
-	.concat([
-		connectToPostgres()
-	]);
+	]));
+}
 
-await Promise.all(promises);
+const redisConnections = getUniqueRedisConfigs().map(connectToRedis);
+const allConnections = [...redisConnections, connectToPostgres()];
+
+await Promise.all(allConnections);

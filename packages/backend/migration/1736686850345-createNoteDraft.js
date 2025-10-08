@@ -4,9 +4,9 @@
  */
 
 export class CreateNoteDraft1736686850345 {
-    name = 'CreateNoteDraft1736686850345'
+	name = 'CreateNoteDraft1736686850345';
 
-    async up(queryRunner) {
+	async up(queryRunner) {
 			await queryRunner.query(`
 				CREATE TABLE "note_draft" (
 					"id" varchar NOT NULL,
@@ -73,9 +73,9 @@ export class CreateNoteDraft1736686850345 {
 				ALTER TABLE "note_draft"
 				ADD CONSTRAINT "FK_NOTE_DRAFT_CHANNEL_ID" FOREIGN KEY ("channelId") REFERENCES "channel"("id") ON DELETE CASCADE
 			`);
-    }
+	}
 
-    async down(queryRunner) {
+	async down(queryRunner) {
 			await queryRunner.query(`ALTER TABLE "note_draft" DROP CONSTRAINT "FK_NOTE_DRAFT_CHANNEL_ID"`);
 			await queryRunner.query(`ALTER TABLE "note_draft" DROP CONSTRAINT "FK_NOTE_DRAFT_USER_ID"`);
 			await queryRunner.query(`ALTER TABLE "note_draft" DROP CONSTRAINT "FK_NOTE_DRAFT_RENOTE_ID"`);
@@ -87,5 +87,5 @@ export class CreateNoteDraft1736686850345 {
 			await queryRunner.query(`DROP INDEX "IDX_NOTE_DRAFT_RENOTE_ID"`);
 			await queryRunner.query(`DROP INDEX "IDX_NOTE_DRAFT_REPLY_ID"`);
 			await queryRunner.query(`DROP TABLE "note_draft"`);
-    }
+	}
 }

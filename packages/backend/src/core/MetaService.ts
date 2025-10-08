@@ -44,69 +44,91 @@ export class MetaService implements OnApplicationShutdown {
 	}
 
 	@bindThis
-	private async onMessage(_: string, data: string): Promise<void> {
-		const obj = JSON.parse(data);
+	private async onMessage(_channel: string, data: string): Promise<void> {
+		try {
+			const obj = JSON.parse(data);
 
-		if (obj.channel === 'internal') {
-			const { type, body } = obj.message as GlobalEvents['internal']['payload'];
-			switch (type) {
-				case 'metaUpdated': {
-					this.cache = { // TODO: このあたりのデシリアライズ処理は各modelファイル内に関数としてexportしたい
-						...(body.after),
-						rootUser: null, // joinなカラムは通常取ってこないので
-					};
-					break;
+			if (obj.channel === 'internal') {
+				const { type, body } = obj.message as GlobalEvents['internal']['payload'];
+				switch (type) {
+					case 'metaUpdated': {
+						// TODO: Deserialization logic should be exported from model files
+						this.cache = {
+							...body.after,
+							// Joined columns are not normally fetched, so reset them
+							rootUser: null,
+						};
+						break;
+					}
+					default:
+						break;
 				}
-				default:
-					break;
 			}
+		} catch (error) {
+			console.error('Failed to process meta update message:', error);
 		}
 	}
 
+	/**
+	 * Fetch metadata from database
+	 * @param noCache If true, bypass cache and fetch fresh data
+	 * @returns Meta instance
+	 */
 	@bindThis
 	public async fetch(noCache = false): Promise<MiMeta> {
-		if (!noCache && this.cache) return this.cache;
+		// Return cached value if available and caching is enabled
+		if (!noCache && this.cache) {
+			return this.cache;
+		}
 
 		return await this.db.transaction(async transactionalEntityManager => {
-			// 過去のバグでレコードが複数出来てしまっている可能性があるので新しいIDを優先する
+			// Due to past bugs, multiple records might exist - prioritize newest ID
 			const metas = await transactionalEntityManager.find(MiMeta, {
-				order: {
-					id: 'DESC',
-				},
+				order: { id: 'DESC' },
 			});
 
-			const meta = metas[0];
+			const existingMeta = metas[0];
 
-			if (meta) {
-				this.cache = meta;
-				return meta;
-			} else {
-				// metaが空のときfetchMetaが同時に呼ばれるとここが同時に呼ばれてしまうことがあるのでフェイルセーフなupsertを使う
-				const saved = await transactionalEntityManager
-					.upsert(
-						MiMeta,
-						{
-							id: 'x',
-						},
-						['id'],
-					)
-					.then((x) => transactionalEntityManager.findOneByOrFail(MiMeta, x.identifiers[0]));
+			if (existingMeta) {
+				this.cache = existingMeta;
+				return existingMeta;
+			}
 
-				this.cache = saved;
-				return saved;
+			// No meta exists - create one using upsert to handle race conditions
+			// (when multiple fetch calls occur simultaneously)
+			try {
+				const result = await transactionalEntityManager.upsert(
+					MiMeta,
+					{ id: 'x' },
+					['id']
+				);
+				
+				const savedMeta = await transactionalEntityManager.findOneByOrFail(
+					MiMeta,
+					result.identifiers[0]
+				);
+
+				this.cache = savedMeta;
+				return savedMeta;
+			} catch (error) {
+				console.error('Failed to initialize meta record:', error);
+				throw new Error('Meta initialization failed');
 			}
 		});
 	}
 
+	/**
+	 * Update metadata in database
+	 * @param data Partial meta data to update
+	 * @returns Updated meta instance
+	 */
 	@bindThis
 	public async update(data: Partial<MiMeta>): Promise<MiMeta> {
 		let before: MiMeta | undefined;
 
 		const updated = await this.db.transaction(async transactionalEntityManager => {
 			const metas = await transactionalEntityManager.find(MiMeta, {
-				order: {
-					id: 'DESC',
-				},
+				order: { id: 'DESC' },
 			});
 
 			before = metas[0];
@@ -120,33 +142,42 @@ export class MetaService implements OnApplicationShutdown {
 				});
 			}
 
-			const afters = await transactionalEntityManager.find(MiMeta, {
-				order: {
-					id: 'DESC',
-				},
+			const updatedMetas = await transactionalEntityManager.find(MiMeta, {
+				order: { id: 'DESC' },
 			});
 
-			return afters[0];
+			return updatedMetas[0];
 		});
 
-		if (data.hiddenTags) {
-			process.nextTick(() => {
-				const hiddenTags = new Set<string>(data.hiddenTags);
-				if (before) {
-					for (const previousHiddenTag of before.hiddenTags) {
-						hiddenTags.delete(previousHiddenTag);
-					}
-				}
-
-				for (const hiddenTag of hiddenTags) {
-					this.featuredService.removeHashtagsFromRanking(hiddenTag);
-				}
-			});
+		// Handle hidden tags changes asynchronously
+		if (data.hiddenTags && before) {
+			this.handleHiddenTagsUpdate(data.hiddenTags, before.hiddenTags);
 		}
 
+		// Publish update event
 		this.globalEventService.publishInternalEvent('metaUpdated', { before, after: updated });
 
 		return updated;
+	}
+
+	/**
+	 * Handle changes to hidden tags by removing newly hidden tags from ranking
+	 */
+	@bindThis
+	private handleHiddenTagsUpdate(newHiddenTags: string[], oldHiddenTags: string[]): void {
+		process.nextTick(() => {
+			const newlyHiddenTags = new Set(newHiddenTags);
+			
+			// Remove tags that were already hidden (they're not newly hidden)
+			for (const oldTag of oldHiddenTags) {
+				newlyHiddenTags.delete(oldTag);
+			}
+
+			// Remove newly hidden tags from ranking
+			for (const tag of newlyHiddenTags) {
+				this.featuredService.removeHashtagsFromRanking(tag);
+			}
+		});
 	}
 
 	@bindThis

@@ -3,12 +3,22 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
+//#region Note limits
 export const MAX_NOTE_TEXT_LENGTH = 3000;
+//#endregion
 
-export const USER_ONLINE_THRESHOLD = 1000 * 60 * 10; // 10min
-export const USER_ACTIVE_THRESHOLD = 1000 * 60 * 60 * 24 * 3; // 3days
+//#region User activity thresholds
+const MINUTE_MS = 1000 * 60;
+const HOUR_MS = MINUTE_MS * 60;
+const DAY_MS = HOUR_MS * 24;
 
+export const USER_ONLINE_THRESHOLD = MINUTE_MS * 10; // 10min
+export const USER_ACTIVE_THRESHOLD = DAY_MS * 3; // 3days
+//#endregion
+
+//#region Cache limits
 export const PER_NOTE_REACTION_USER_PAIR_CACHE_MAX = 16;
+//#endregion
 
 //#region hard limits
 // If you change DB_* values, you must also change the DB schema.

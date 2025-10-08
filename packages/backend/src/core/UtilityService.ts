@@ -40,12 +40,18 @@ export class UtilityService {
 		return this.punyHost(uri) === this.toPuny(this.config.host);
 	}
 
-	// メールアドレスのバリデーションを行う
-	// https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
+	/**
+	 * Validate email address format
+	 * Based on HTML5 specification: https://html.spec.whatwg.org/multipage/input.html#valid-e-mail-address
+	 * @param email Email address to validate
+	 * @returns true if email format is valid, false otherwise
+	 */
 	@bindThis
 	public validateEmailFormat(email: string): boolean {
-		const regexp = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-		return regexp.test(email);
+		if (!email || email.trim().length === 0) return false;
+		
+		const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+		return EMAIL_REGEX.test(email.trim());
 	}
 
 	@bindThis
@@ -66,6 +72,12 @@ export class UtilityService {
 		return silencedHosts.some(x => host.toLowerCase() === x);
 	}
 
+	/**
+	 * Concatenate note contents for keyword checking
+	 * CW and text are concatenated without separator since they might be continuations of each other
+	 * @param content Note content components
+	 * @returns Combined string for keyword matching
+	 */
 	@bindThis
 	public concatNoteContentsForKeyWordCheck(content: {
 		cw?: string | null;
@@ -73,38 +85,48 @@ export class UtilityService {
 		pollChoices?: string[] | null;
 		others?: string[] | null;
 	}): string {
-		/**
-		 * ノートの内容を結合してキーワードチェック用の文字列を生成する
-		 * cwとtextは内容が繋がっているかもしれないので間に何も入れずにチェックする
-		 */
-		return `${content.cw ?? ''}${content.text ?? ''}\n${(content.pollChoices ?? []).join('\n')}\n${(content.others ?? []).join('\n')}`;
+		const cwText = content.cw ?? '';
+		const mainText = content.text ?? '';
+		const pollText = (content.pollChoices ?? []).join('\n');
+		const otherText = (content.others ?? []).join('\n');
+		
+		return `${cwText}${mainText}\n${pollText}\n${otherText}`;
 	}
 
+	/**
+	 * Check if text contains any of the specified keywords
+	 * Supports both plain text matching and regex patterns
+	 * @param text Text to search within
+	 * @param keyWords Array of keywords or regex patterns (format: /pattern/flags)
+	 * @returns true if any keyword matches, false otherwise
+	 */
 	@bindThis
 	public isKeyWordIncluded(text: string, keyWords: string[]): boolean {
-		if (keyWords.length === 0) return false;
-		if (text === '') return false;
+		if (keyWords.length === 0 || text === '') return false;
 
-		const regexpregexp = /^\/(.+)\/(.*)$/;
+		const REGEX_PATTERN = /^\/(.+)\/(.*)$/;
 
-		const matched = keyWords.some(filter => {
-			// represents RegExp
-			const regexp = filter.match(regexpregexp);
-			// This should never happen due to input sanitisation.
-			if (!regexp) {
-				const words = filter.split(' ');
+		return keyWords.some(filter => {
+			const regexMatch = filter.match(REGEX_PATTERN);
+			
+			if (!regexMatch) {
+				// Plain text matching: all words must be present
+				const words = filter.split(' ').filter(w => w.length > 0);
 				return words.every(keyword => text.includes(keyword));
 			}
+			
 			try {
-				// TODO: RE2インスタンスをキャッシュ
-				return new RE2(regexp[1], regexp[2]).test(text);
+				// Regex matching
+				// TODO: Cache RE2 instances for better performance
+				const pattern = regexMatch[1];
+				const flags = regexMatch[2];
+				return new RE2(pattern, flags).test(text);
 			} catch (err) {
-				// This should never happen due to input sanitisation.
+				// Invalid regex - log error and continue
+				console.error(`Invalid regex pattern: ${filter}`, err);
 				return false;
 			}
 		});
-
-		return matched;
 	}
 
 	@bindThis

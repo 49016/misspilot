@@ -7,6 +7,12 @@ import { Injectable } from '@nestjs/common';
 import type Logger from '@/logger.js';
 import { LoggerService } from '@/core/LoggerService.js';
 
+const LOGGER_NAME = 'client';
+
+/**
+ * Logger service for client operations
+ * Provides a logger for client-related activities
+ */
 @Injectable()
 export class ClientLoggerService {
 	public logger: Logger;
@@ -14,6 +20,6 @@ export class ClientLoggerService {
 	constructor(
 		private loggerService: LoggerService,
 	) {
-		this.logger = this.loggerService.getLogger('client');
+		this.logger = this.loggerService.getLogger(LOGGER_NAME);
 	}
 }

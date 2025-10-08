@@ -4,7 +4,7 @@
  */
 
 export class OptimizeEmojiIndex1709126576000 {
-	name = 'OptimizeEmojiIndex1709126576000'
+	name = 'OptimizeEmojiIndex1709126576000';
 
 	async up(queryRunner) {
 		await queryRunner.query(`CREATE INDEX "IDX_EMOJI_ROLE_IDS" ON "emoji" using gin ("roleIdsThatCanBeUsedThisEmojiAsReaction")`)

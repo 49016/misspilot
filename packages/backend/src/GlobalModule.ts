@@ -26,10 +26,19 @@ const $db: Provider = {
 	useFactory: async (config) => {
 		try {
 			const db = createPostgresDataSource(config);
-			return await db.initialize();
+			const connection = await db.initialize();
+			console.log('Database connection established successfully');
+			return connection;
 		} catch (e) {
-			console.log(e);
-			throw e;
+			console.error('Failed to initialize database connection:', e);
+			// Provide more context about the error
+			if (e instanceof Error) {
+				console.error('Error details:', {
+					message: e.message,
+					stack: e.stack,
+				});
+			}
+			throw new Error(`Database initialization failed: ${e instanceof Error ? e.message : String(e)}`);
 		}
 	},
 	inject: [DI.config],
@@ -101,19 +110,22 @@ const $meta: Provider = {
 	provide: DI.meta,
 	useFactory: async (db: DataSource, redisForSub: Redis.Redis) => {
 		const meta = await db.transaction(async transactionalEntityManager => {
-			// 過去のバグでレコードが複数出来てしまっている可能性があるので新しいIDを優先する
+			// Due to past bugs, there might be multiple records. Prioritize the newest ID
 			const metas = await transactionalEntityManager.find(MiMeta, {
 				order: {
 					id: 'DESC',
 				},
 			});
 
-			const meta = metas[0];
+			const existingMeta = metas[0];
 
-			if (meta) {
-				return meta;
-			} else {
-				// metaが空のときfetchMetaが同時に呼ばれるとここが同時に呼ばれてしまうことがあるのでフェイルセーフなupsertを使う
+			if (existingMeta) {
+				return existingMeta;
+			}
+
+			// If meta is empty and fetchMeta is called simultaneously, 
+			// use failsafe upsert to prevent race conditions
+			try {
 				const saved = await transactionalEntityManager
 					.upsert(
 						MiMeta,
@@ -122,32 +134,39 @@ const $meta: Provider = {
 						},
 						['id'],
 					)
-					.then((x) => transactionalEntityManager.findOneByOrFail(MiMeta, x.identifiers[0]));
+					.then((result) => transactionalEntityManager.findOneByOrFail(MiMeta, result.identifiers[0]));
 
 				return saved;
+			} catch (error) {
+				console.error('Failed to initialize meta record:', error);
+				throw new Error('Meta record initialization failed');
 			}
 		});
 
-		async function onMessage(_: string, data: string): Promise<void> {
-			const obj = JSON.parse(data);
+		async function handleRedisMessage(_channel: string, data: string): Promise<void> {
+			try {
+				const obj = JSON.parse(data);
 
-			if (obj.channel === 'internal') {
-				const { type, body } = obj.message as GlobalEvents['internal']['payload'];
-				switch (type) {
-					case 'metaUpdated': {
-						for (const key in body.after) {
-							(meta as any)[key] = (body.after as any)[key];
+				if (obj.channel === 'internal') {
+					const { type, body } = obj.message as GlobalEvents['internal']['payload'];
+					switch (type) {
+						case 'metaUpdated': {
+							// Update meta properties with new values
+							Object.assign(meta, body.after);
+							// Reset joined columns that aren't normally fetched
+							meta.rootUser = null;
+							break;
 						}
-						meta.rootUser = null; // joinなカラムは通常取ってこないので
-						break;
+						default:
+							break;
 					}
-					default:
-						break;
 				}
+			} catch (error) {
+				console.error('Failed to process Redis message:', error);
 			}
 		}
 
-		redisForSub.on('message', onMessage);
+		redisForSub.on('message', handleRedisMessage);
 
 		return meta;
 	},
@@ -171,17 +190,28 @@ export class GlobalModule implements OnApplicationShutdown {
 	) { }
 
 	public async dispose(): Promise<void> {
-		// Wait for all potential DB queries
-		await allSettled();
-		// And then disconnect from DB
-		await Promise.all([
-			this.db.destroy(),
-			this.redisClient.disconnect(),
-			this.redisForPub.disconnect(),
-			this.redisForSub.disconnect(),
-			this.redisForTimelines.disconnect(),
-			this.redisForReactions.disconnect(),
-		]);
+		console.log('Starting graceful shutdown...');
+		
+		try {
+			// Wait for all potential DB queries to complete
+			await allSettled();
+			console.log('All pending database queries completed');
+			
+			// Disconnect from all services in parallel
+			await Promise.all([
+				this.db.destroy().catch(err => console.error('Error destroying database connection:', err)),
+				this.redisClient.disconnect().catch(err => console.error('Error disconnecting Redis client:', err)),
+				this.redisForPub.disconnect().catch(err => console.error('Error disconnecting Redis pub:', err)),
+				this.redisForSub.disconnect().catch(err => console.error('Error disconnecting Redis sub:', err)),
+				this.redisForTimelines.disconnect().catch(err => console.error('Error disconnecting Redis timelines:', err)),
+				this.redisForReactions.disconnect().catch(err => console.error('Error disconnecting Redis reactions:', err)),
+			]);
+			
+			console.log('All connections closed successfully');
+		} catch (error) {
+			console.error('Error during disposal:', error);
+			throw error;
+		}
 	}
 
 	async onApplicationShutdown(signal: string): Promise<void> {

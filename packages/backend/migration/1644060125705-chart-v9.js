@@ -4,7 +4,7 @@
  */
 
 export class chartV91644060125705 {
-    name = 'chartV91644060125705'
+	name = 'chartV91644060125705';
 
 		async up(queryRunner) {
 			await queryRunner.query(`UPDATE "__chart__hashtag" SET "___local_users"=2147483647 WHERE "___local_users" > 2147483647`);

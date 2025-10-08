@@ -1,52 +1,72 @@
 import locales from './index.js';
 
+const PARAMETER_REGEXP = /\{[^}]+\}/g;
+const ORIGINAL_LOCALE = 'ja-JP';
+
 let valid = true;
 
 function writeError(type, lang, tree, data) {
-	process.stderr.write(JSON.stringify({ type, lang, tree, data }));
+	const errorData = JSON.stringify({ type, lang, tree, data });
+	process.stderr.write(errorData);
 	process.stderr.write('\n');
 	valid = false;
 }
 
+function buildTracePath(trace, key) {
+	return trace ? `${trace}.${key}` : key;
+}
+
+function extractParameterNames(text) {
+	return new Set(text.match(PARAMETER_REGEXP)?.map((s) => s.slice(1, -1)));
+}
+
+function verifyStringParameters(expected, actual, lang, tracePath) {
+	const expectedParameters = extractParameterNames(expected);
+	const actualParameters = extractParameterNames(actual);
+	for (const parameter of expectedParameters) {
+		if (!actualParameters.has(parameter)) {
+			writeError('missing_parameter', lang, tracePath, { parameter });
+		}
+	}
+}
+
+function verifyValue(expected, actual, lang, trace, key) {
+	const tracePath = buildTracePath(trace, key);
+	
+	if (typeof expected === 'object') {
+		if (typeof actual !== 'object') {
+			writeError('mismatched_type', lang, tracePath, { expected: 'object', actual: typeof actual });
+			return;
+		}
+		verify(expected, actual, lang, tracePath);
+	} else if (typeof expected === 'string' && typeof actual === 'string') {
+		verifyStringParameters(expected, actual, lang, tracePath);
+	} else if (typeof expected === 'string' && typeof actual === 'object') {
+		writeError('mismatched_type', lang, tracePath, { expected: 'string', actual: 'object' });
+	}
+}
+
 function verify(expected, actual, lang, trace) {
-	for (let key in expected) {
+	for (const key in expected) {
 		if (!Object.prototype.hasOwnProperty.call(actual, key)) {
 			continue;
 		}
-		if (typeof expected[key] === 'object') {
-			if (typeof actual[key] !== 'object') {
-				writeError('mismatched_type', lang, trace ? `${trace}.${key}` : key, { expected: 'object', actual: typeof actual[key] });
-				continue;
-			}
-			verify(expected[key], actual[key], lang, trace ? `${trace}.${key}` : key);
-		} else if (typeof expected[key] === 'string') {
-			switch (typeof actual[key]) {
-				case 'object':
-					writeError('mismatched_type', lang, trace ? `${trace}.${key}` : key, { expected: 'string', actual: 'object' });
-					break;
-				case 'undefined':
-					continue;
-				case 'string':
-					const expectedParameters = new Set(expected[key].match(/\{[^}]+\}/g)?.map((s) => s.slice(1, -1)));
-					const actualParameters = new Set(actual[key].match(/\{[^}]+\}/g)?.map((s) => s.slice(1, -1)));
-					for (let parameter of expectedParameters) {
-						if (!actualParameters.has(parameter)) {
-							writeError('missing_parameter', lang, trace ? `${trace}.${key}` : key, { parameter });
-						}
-					}
-			}
+		verifyValue(expected[key], actual[key], lang, trace, key);
+	}
+}
+
+function verifyAllLocales() {
+	const { [ORIGINAL_LOCALE]: original, ...verifiees } = locales;
+
+	for (const lang in verifiees) {
+		if (!Object.prototype.hasOwnProperty.call(locales, lang)) {
+			continue;
 		}
+		verify(original, verifiees[lang], lang);
 	}
 }
 
-const { ['ja-JP']: original, ...verifiees } = locales;
-
-for (let lang in verifiees) {
-	if (!Object.prototype.hasOwnProperty.call(locales, lang)) {
-		continue;
-	}
-	verify(original, verifiees[lang], lang);
-}
+verifyAllLocales();
 
 if (!valid) {
 	process.exit(1);

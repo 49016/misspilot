@@ -7,18 +7,27 @@
 
 // ブロックの中に入れないと、定義した変数がブラウザのグローバルスコープに登録されてしまい邪魔なので
 (async () => {
+	const ERROR_CODE_SOMETHING_HAPPENED = 'SOMETHING_HAPPENED';
+	const ERROR_CODE_PROMISE_REJECTION = 'SOMETHING_HAPPENED_IN_PROMISE';
+	const ERROR_CODE_FORCED = 'FORCED_ERROR';
+	const STORAGE_KEY_FORCE_ERROR = 'forceError';
+	const STORAGE_KEY_LANG = 'lang';
+	const STORAGE_KEY_BOOTLOADER_LOCALES = 'bootloaderLocales';
+	const STORAGE_KEY_LEGACY_LOCALE = 'locale';
+	const DEFAULT_LANG = 'en-US';
+
 	window.onerror = (e) => {
 		console.error(e);
-		renderError('SOMETHING_HAPPENED');
+		renderError(ERROR_CODE_SOMETHING_HAPPENED);
 	};
 	window.onunhandledrejection = (e) => {
 		console.error(e);
-		renderError('SOMETHING_HAPPENED_IN_PROMISE');
+		renderError(ERROR_CODE_PROMISE_REJECTION);
 	};
 
-	let forceError = localStorage.getItem('forceError');
+	const forceError = localStorage.getItem(STORAGE_KEY_FORCE_ERROR);
 	if (forceError != null) {
-		renderError('FORCED_ERROR', 'This error is forced by having forceError in local storage.');
+		renderError(ERROR_CODE_FORCED, 'This error is forced by having forceError in local storage.');
 		return;
 	}
 
@@ -32,25 +41,31 @@
 	}
 
 	//#region Detect language & fetch translations
-	const supportedLangs = LANGS;
-	/** @type { string } */
-	let lang = localStorage.getItem('lang');
-	if (lang == null || !supportedLangs.includes(lang)) {
-		if (supportedLangs.includes(navigator.language)) {
-			lang = navigator.language;
-		} else {
-			lang = supportedLangs.find(x => x.split('-')[0] === navigator.language);
-
-			// Fallback
-			if (lang == null) lang = 'en-US';
+	function detectLanguage() {
+		const supportedLangs = LANGS;
+		let lang = localStorage.getItem(STORAGE_KEY_LANG);
+		
+		if (lang == null || !supportedLangs.includes(lang)) {
+			if (supportedLangs.includes(navigator.language)) {
+				lang = navigator.language;
+			} else {
+				lang = supportedLangs.find(x => x.split('-')[0] === navigator.language);
+				if (lang == null) {
+					lang = DEFAULT_LANG;
+				}
+			}
 		}
-	}
 
-	// for https://github.com/misskey-dev/misskey/issues/10202
-	if (lang == null || lang.toString == null || lang.toString() === 'null') {
-		console.error('invalid lang value detected!!!', typeof lang, lang);
-		lang = 'en-US';
+		// for https://github.com/misskey-dev/misskey/issues/10202
+		if (lang == null || lang.toString == null || lang.toString() === 'null') {
+			console.error('invalid lang value detected!!!', typeof lang, lang);
+			lang = DEFAULT_LANG;
+		}
+		
+		return lang;
 	}
+	
+	const lang = detectLanguage();
 	//#endregion
 
 	//#region Script
@@ -78,30 +93,36 @@
 		document.head.appendChild(css);
 	}
 
-	async function renderError(code) {
-		// Cannot set property 'innerHTML' of null を回避
+	async function waitForDOMReady() {
 		if (document.readyState === 'loading') {
 			await new Promise(resolve => window.addEventListener('DOMContentLoaded', resolve));
 		}
+	}
 
-		let messages = null;
-		const bootloaderLocales = localStorage.getItem('bootloaderLocales');
+	function loadErrorMessages() {
+		const bootloaderLocales = localStorage.getItem(STORAGE_KEY_BOOTLOADER_LOCALES);
 		if (bootloaderLocales) {
-			messages = JSON.parse(bootloaderLocales);
+			return JSON.parse(bootloaderLocales);
 		}
-		if (!messages) {
-			// older version of misskey does not store bootloaderLocales, stores locale as a whole
-			const legacyLocale = localStorage.getItem('locale');
-			if (legacyLocale) {
-				const parsed = JSON.parse(legacyLocale);
-				messages = {
-					...(parsed._bootErrors ?? {}),
-					reload: parsed.reload,
-				};
-			}
-		}
-		if (!messages) messages = {};
 
+		// older version of misskey does not store bootloaderLocales, stores locale as a whole
+		const legacyLocale = localStorage.getItem(STORAGE_KEY_LEGACY_LOCALE);
+		if (legacyLocale) {
+			const parsed = JSON.parse(legacyLocale);
+			return {
+				...(parsed._bootErrors ?? {}),
+				reload: parsed.reload,
+			};
+		}
+
+		return {};
+	}
+
+	async function renderError(code) {
+		// Cannot set property 'innerHTML' of null を回避
+		await waitForDOMReady();
+
+		const messages = loadErrorMessages();
 		const title = messages?.title || 'Failed to initialize Misskey';
 		const reload = messages?.reload || 'Reload';
 

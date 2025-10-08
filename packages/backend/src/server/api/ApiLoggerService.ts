@@ -7,6 +7,12 @@ import { Injectable } from '@nestjs/common';
 import type Logger from '@/logger.js';
 import { LoggerService } from '@/core/LoggerService.js';
 
+const LOGGER_NAME = 'api';
+
+/**
+ * Logger service for API operations
+ * Provides a logger for API-related activities
+ */
 @Injectable()
 export class ApiLoggerService {
 	public logger: Logger;
@@ -14,6 +20,6 @@ export class ApiLoggerService {
 	constructor(
 		private loggerService: LoggerService,
 	) {
-		this.logger = this.loggerService.getLogger('api');
+		this.logger = this.loggerService.getLogger(LOGGER_NAME);
 	}
 }

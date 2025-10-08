@@ -7,17 +7,29 @@ import { toArray } from '@/misc/prelude/array.js';
 import { isHashtag } from '../type.js';
 import type { IObject, IApHashtag } from '../type.js';
 
+const HASHTAG_PREFIX_REGEX = /^#(.+)/;
+
+/**
+ * Extract hashtag strings from ActivityPub tags
+ * @param tags - ActivityPub tag object(s) or null/undefined
+ * @returns Array of hashtag strings without the '#' prefix
+ */
 export function extractApHashtags(tags: IObject | IObject[] | null | undefined): string[] {
 	if (tags == null) return [];
 
 	const hashtags = extractApHashtagObjects(tags);
 
 	return hashtags.map(tag => {
-		const m = tag.name.match(/^#(.+)/);
-		return m ? m[1] : null;
-	}).filter(x => x != null);
+		const match = tag.name.match(HASHTAG_PREFIX_REGEX);
+		return match ? match[1] : null;
+	}).filter((x): x is string => x != null);
 }
 
+/**
+ * Extract hashtag objects from ActivityPub tags
+ * @param tags - ActivityPub tag object(s) or null/undefined  
+ * @returns Array of hashtag objects
+ */
 export function extractApHashtagObjects(tags: IObject | IObject[] | null | undefined): IApHashtag[] {
 	if (tags == null) return [];
 	return toArray(tags).filter(isHashtag);
