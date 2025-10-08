@@ -1,19 +1,27 @@
 import { DataSource } from 'typeorm';
 import { loadConfig } from './built/config.js';
 import { entities } from './built/postgres.js';
-import { isConcurrentIndexMigrationEnabled } from "./migration/js/migration-config.js";
+import { isConcurrentIndexMigrationEnabled } from './migration/js/migration-config.js';
 
-const config = loadConfig();
+const MIGRATION_PATTERN = 'migration/*.js';
+const DB_TYPE = 'postgres';
 
-export default new DataSource({
-	type: 'postgres',
-	host: config.db.host,
-	port: config.db.port,
-	username: config.db.user,
-	password: config.db.pass,
-	database: config.db.db,
-	extra: config.db.extra,
-	entities: entities,
-	migrations: ['migration/*.js'],
-	migrationsTransactionMode: isConcurrentIndexMigrationEnabled() ? 'each' : 'all',
-});
+function createDataSourceConfig() {
+	const config = loadConfig();
+	const transactionMode = isConcurrentIndexMigrationEnabled() ? 'each' : 'all';
+
+	return {
+		type: DB_TYPE,
+		host: config.db.host,
+		port: config.db.port,
+		username: config.db.user,
+		password: config.db.pass,
+		database: config.db.db,
+		extra: config.db.extra,
+		entities,
+		migrations: [MIGRATION_PATTERN],
+		migrationsTransactionMode: transactionMode,
+	};
+}
+
+export default new DataSource(createDataSourceConfig());
