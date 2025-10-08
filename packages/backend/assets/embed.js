@@ -4,28 +4,44 @@
  */
 //@ts-check
 (() => {
-	/** @type {NodeListOf<HTMLIFrameElement>} */
-	const els = document.querySelectorAll('iframe[data-misskey-embed-id]');
+	const IFRAME_SELECTOR = 'iframe[data-misskey-embed-id]';
+	const MESSAGE_TYPE_READY = 'misskey:embed:ready';
+	const MESSAGE_TYPE_CHANGE_HEIGHT = 'misskey:embed:changeHeight';
+	const MESSAGE_TYPE_REGISTER_ID = 'misskey:embedParent:registerIframeId';
 
-	window.addEventListener('message', function (event) {
-		els.forEach((el) => {
-			if (event.source !== el.contentWindow) {
+	/** @type {NodeListOf<HTMLIFrameElement>} */
+	const iframes = document.querySelectorAll(IFRAME_SELECTOR);
+
+	function sendRegistrationMessage(iframe, iframeId) {
+		iframe.contentWindow?.postMessage({
+			type: MESSAGE_TYPE_REGISTER_ID,
+			payload: {
+				iframeId,
+			},
+		}, '*');
+	}
+
+	function updateIframeHeight(iframe, height) {
+		iframe.style.height = `${height}px`;
+	}
+
+	function handleMessage(event) {
+		iframes.forEach((iframe) => {
+			if (event.source !== iframe.contentWindow) {
 				return;
 			}
 
-			const id = el.dataset.misskeyEmbedId;
+			const iframeId = iframe.dataset.misskeyEmbedId;
 
-			if (event.data.type === 'misskey:embed:ready') {
-				el.contentWindow?.postMessage({
-					type: 'misskey:embedParent:registerIframeId',
-					payload: {
-						iframeId: id,
-					}
-				}, '*');
+			if (event.data.type === MESSAGE_TYPE_READY) {
+				sendRegistrationMessage(iframe, iframeId);
 			}
-			if (event.data.type === 'misskey:embed:changeHeight' && event.data.iframeId === id) {
-				el.style.height = event.data.payload.height + 'px';
+
+			if (event.data.type === MESSAGE_TYPE_CHANGE_HEIGHT && event.data.iframeId === iframeId) {
+				updateIframeHeight(iframe, event.data.payload.height);
 			}
 		});
-	});
+	}
+
+	window.addEventListener('message', handleMessage);
 })();
