@@ -4,13 +4,13 @@
  */
 
 export class SingleUserMode1746422049376 {
-    name = 'SingleUserMode1746422049376'
+	name = 'SingleUserMode1746422049376';
 
-    async up(queryRunner) {
+	async up(queryRunner) {
 			await queryRunner.query(`ALTER TABLE "meta" ADD "singleUserMode" boolean NOT NULL DEFAULT false`);
-    }
+	}
 
-    async down(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "meta" DROP COLUMN "singleUserMode"`);
-    }
+	async down(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "meta" DROP COLUMN "singleUserMode"`);
+	}
 }

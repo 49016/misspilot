@@ -4,7 +4,7 @@
  */
 
 export class PasskeySupport1691959191872 {
-	name = 'PasskeySupport1691959191872'
+	name = 'PasskeySupport1691959191872';
 
 	async up(queryRunner) {
 			await queryRunner.query(`ALTER TABLE "user_security_key" ADD "counter" bigint NOT NULL DEFAULT '0'`);

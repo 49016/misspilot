@@ -4,13 +4,13 @@
  */
 
 export class TweakDefaultFederationSettings1754019326356 {
-    name = 'TweakDefaultFederationSettings1754019326356'
+	name = 'TweakDefaultFederationSettings1754019326356';
 
-    async up(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "meta" ALTER COLUMN "federation" SET DEFAULT 'none'`);
-    }
+	async up(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "meta" ALTER COLUMN "federation" SET DEFAULT 'none'`);
+	}
 
-    async down(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "meta" ALTER COLUMN "federation" SET DEFAULT 'all'`);
-    }
+	async down(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "meta" ALTER COLUMN "federation" SET DEFAULT 'all'`);
+	}
 }

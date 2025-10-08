@@ -4,13 +4,13 @@
  */
 
 export class SensitiveAd1757823175259 {
-    name = 'SensitiveAd1757823175259'
+	name = 'SensitiveAd1757823175259';
 
-    async up(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "ad" ADD "isSensitive" boolean NOT NULL DEFAULT false`);
-    }
+	async up(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "ad" ADD "isSensitive" boolean NOT NULL DEFAULT false`);
+	}
 
-    async down(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "ad" DROP COLUMN "isSensitive"`);
-    }
+	async down(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "ad" DROP COLUMN "isSensitive"`);
+	}
 }

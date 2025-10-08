@@ -6,7 +6,7 @@
 import tinycolor from 'tinycolor2';
 
 export class uniformThemecolor1652859567549 {
-	name = 'uniformThemecolor1652859567549'
+	name = 'uniformThemecolor1652859567549';
 
 	async up(queryRunner) {
 		const formatColor = (color) => {

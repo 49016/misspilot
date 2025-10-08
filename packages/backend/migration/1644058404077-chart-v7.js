@@ -4,7 +4,7 @@
  */
 
 export class chartV71644058404077 {
-    name = 'chartV71644058404077'
+	name = 'chartV71644058404077';
 
 	async up(queryRunner) {
 		await queryRunner.query(`UPDATE "__chart__federation" SET "___instance_total"=2147483647 WHERE "___instance_total" > 2147483647`);

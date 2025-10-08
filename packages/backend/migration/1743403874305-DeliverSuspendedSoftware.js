@@ -4,13 +4,13 @@
  */
 
 export class DeliverSuspendedSoftware1743403874305 {
-    name = 'DeliverSuspendedSoftware1743403874305'
+	name = 'DeliverSuspendedSoftware1743403874305';
 
-    async up(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "meta" ADD "deliverSuspendedSoftware" jsonb NOT NULL DEFAULT '[]'`);
-    }
+	async up(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "meta" ADD "deliverSuspendedSoftware" jsonb NOT NULL DEFAULT '[]'`);
+	}
 
-    async down(queryRunner) {
-        await queryRunner.query(`ALTER TABLE "meta" DROP COLUMN "deliverSuspendedSoftware"`);
-    }
+	async down(queryRunner) {
+	    await queryRunner.query(`ALTER TABLE "meta" DROP COLUMN "deliverSuspendedSoftware"`);
+	}
 }
